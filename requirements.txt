@@ -1,0 +1,6 @@
+pyserial>=3.5
+numpy>=1.24
+opencv-python-headless>=4.8
+
+# Raspberry Pi camera (libcamera): install system package on Pi OS — not always on PyPI:
+#   sudo apt install -y python3-picamera2

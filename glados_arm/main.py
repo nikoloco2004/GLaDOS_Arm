@@ -140,14 +140,19 @@ def cmd_assumptions(_: argparse.Namespace) -> int:
 
 def cmd_track(args: argparse.Namespace) -> int:
     from . import vision_config
-    from .face_tracking import run_tracking
+    from .face_tracking import resolve_preview_mode, run_tracking
 
     w = args.width if args.width is not None else vision_config.CAMERA_WIDTH
     h = args.height if args.height is not None else vision_config.CAMERA_HEIGHT
+    try:
+        want_preview = resolve_preview_mode(args.preview, args.no_preview)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
     return run_tracking(
         port=args.port,
         use_serial=not args.no_serial,
-        preview=args.preview,
+        preview=want_preview,
         width=w,
         height=h,
     )
@@ -216,7 +221,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tr.add_argument("--port", default=config.SERIAL_DEFAULT_PORT)
     tr.add_argument("--no-serial", action="store_true")
-    tr.add_argument("--preview", action="store_true")
+    tr.add_argument("--preview", action="store_true", help="force OpenCV window")
+    tr.add_argument("--no-preview", action="store_true", help="never open window")
     tr.add_argument("--width", type=int, default=None)
     tr.add_argument("--height", type=int, default=None)
     tr.set_defaults(func=cmd_track)

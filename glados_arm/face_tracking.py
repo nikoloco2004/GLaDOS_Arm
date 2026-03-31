@@ -14,8 +14,10 @@ Replace with calibrated angular mapping / IK when ready.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
+
 import cv2
 import numpy as np
 
@@ -23,6 +25,38 @@ from . import config, vision_config
 from .controller import RobotController
 from .mapping import ServoCommand, clamp_servo
 from .serial_comm import ArmSerial
+
+_HAAR_XML = "haarcascade_frontalface_default.xml"
+
+
+def _haar_cascade_path() -> str:
+    """
+    Resolve Haar XML. Many pip wheels expose cv2.data.haarcascades; apt OpenCV on Pi often does not.
+    """
+    try:
+        root = cv2.data.haarcascades  # type: ignore[attr-defined]
+        p = os.path.join(root, _HAAR_XML)
+        if os.path.isfile(p):
+            return p
+    except AttributeError:
+        pass
+
+    for root in (
+        "/usr/share/opencv4/haarcascades",
+        "/usr/local/share/opencv4/haarcascades",
+        "/usr/share/opencv/haarcascades",
+        "/usr/local/share/opencv/haarcascades",
+    ):
+        p = os.path.join(root, _HAAR_XML)
+        if os.path.isfile(p):
+            return p
+
+    raise FileNotFoundError(
+        f"Could not find {_HAAR_XML}. On Raspberry Pi OS try:\n"
+        "  sudo apt install -y opencv-data\n"
+        "  # or: sudo apt install -y libopencv-data\n"
+        "Then confirm: ls /usr/share/opencv4/haarcascades/"
+    )
 
 
 def _neutral_command() -> ServoCommand:
@@ -38,6 +72,21 @@ def _apply_deadband(v: float, db: float) -> float:
     if abs(v) < db:
         return 0.0
     return v
+
+
+def resolve_preview_mode(explicit_preview: bool, explicit_no_preview: bool) -> bool:
+    """
+    Whether to call cv2.imshow. Default: on when DISPLAY is set (local Pi desktop).
+    Use --preview to force on, --no-preview to force off (e.g. SSH without forwarding).
+    """
+    if explicit_preview and explicit_no_preview:
+        raise ValueError("Use only one of --preview and --no-preview")
+    if explicit_preview:
+        return True
+    if explicit_no_preview:
+        return False
+    disp = os.environ.get("DISPLAY", "").strip()
+    return bool(disp)
 
 
 def run_tracking(
@@ -60,11 +109,15 @@ def run_tracking(
         return 1
 
     vc = vision_config
-    face_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
+    try:
+        haar_path = _haar_cascade_path()
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+    face_cascade = cv2.CascadeClassifier(haar_path)
     if face_cascade.empty():
-        print("Failed to load Haar cascade XML.", file=sys.stderr)
+        print(f"Failed to load Haar cascade from: {haar_path}", file=sys.stderr)
         return 1
 
     picam2 = Picamera2()
@@ -86,7 +139,37 @@ def run_tracking(
         controller.neutral()
 
     cmd = _neutral_command()
-    print("Tracking: Ctrl+C to stop. Picamera2 + OpenCV; horizontal→base, vertical→shoulder/elbow.")
+    print(
+        "Tracking: Ctrl+C to stop. Picamera2 + OpenCV; horizontal→base, vertical→shoulder/elbow.",
+        flush=True,
+    )
+    if preview:
+        print(
+            "Preview: ON (OpenCV window). Press 'q' in the window to quit.",
+            flush=True,
+        )
+    else:
+        print(
+            "Preview: OFF. For a window: run on the Pi desktop, or "
+            "`export DISPLAY=:0`, or pass --preview (needs X11 / local desktop).",
+            flush=True,
+        )
+
+    if preview:
+        try:
+            probe = np.zeros((8, 8, 3), dtype=np.uint8)
+            cv2.imshow("_glados_opencv_gui_probe", probe)
+            cv2.waitKey(1)
+            cv2.destroyWindow("_glados_opencv_gui_probe")
+        except cv2.error as e:
+            print(
+                f"Preview disabled: {e}\n"
+                "Install GUI OpenCV on the Pi (e.g. sudo apt install python3-opencv), "
+                "not opencv-python-headless from pip — headless builds cannot imshow.",
+                file=sys.stderr,
+                flush=True,
+            )
+            preview = False
 
     try:
         while True:
@@ -207,15 +290,25 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--preview",
         action="store_true",
-        help="Show OpenCV window (needs display on Pi)",
+        help="Force OpenCV preview window (needs GUI OpenCV + display)",
+    )
+    p.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="Never open a window (default when DISPLAY is unset)",
     )
     p.add_argument("--width", type=int, default=vision_config.CAMERA_WIDTH)
     p.add_argument("--height", type=int, default=vision_config.CAMERA_HEIGHT)
     args = p.parse_args(argv)
+    try:
+        want_preview = resolve_preview_mode(args.preview, args.no_preview)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
     return run_tracking(
         port=args.port,
         use_serial=not args.no_serial,
-        preview=args.preview,
+        preview=want_preview,
         width=args.width,
         height=args.height,
     )

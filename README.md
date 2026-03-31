@@ -97,8 +97,9 @@ python -m glados_arm.main track --port /dev/ttyACM0
 # Smaller resolution for FPS (also edit vision_config.py)
 python -m glados_arm.main track --port /dev/ttyACM0 --width 320 --height 240
 
-# Local preview window (needs desktop / X11)
+# Preview: ON automatically when DISPLAY is set (Pi desktop terminal). Force: --preview ; headless: --no-preview
 python -m glados_arm.main track --preview
+# If you use pip's opencv-python-headless, imshow will not work — use apt python3-opencv for a GUI build.
 ```
 
 Frames are captured with **Picamera2**, converted to OpenCV arrays, Haar face detection runs, then normalized bbox error drives **base** (image X) and **shoulder/elbow** (image Y) with clamps. Adjust gains and signs in [`glados_arm/vision_config.py`](glados_arm/vision_config.py).

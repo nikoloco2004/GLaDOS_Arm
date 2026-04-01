@@ -605,6 +605,31 @@ def run_tracking(
                     0.0,
                     max(1e-3, float(getattr(vc, "ENGAGE_DOWN_PER_FRAME", 0.35))),
                 )
+                if ctl == "ik" and bool(getattr(vc, "NO_FACE_VERTICAL_RETURN_ENABLE", True)):
+                    z_relax = max(0.0, float(getattr(vc, "NO_FACE_Z_RETURN_MM_PER_FRAME", 2.5)))
+                    target_z_mm = _step_toward(target_z_mm, fk0.tip.z, z_relax)
+                    target_z_mm = max(
+                        float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)),
+                        min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm),
+                    )
+                    solved = solve_vertical_plane(
+                        x_mm=target_x_mm,
+                        z_mm=target_z_mm,
+                        base_yaw_rad=base_yaw_rad,
+                        q_wrist_rad=0.0,
+                        prefer=str(getattr(vc, "IK_PREFER", "elbow_up")),
+                    )
+                    if solved.ik.ok:
+                        cmd = ServoCommand(
+                            wrist=config.NEUTRAL_WRIST,
+                            elbow=solved.servo_clamped.elbow,
+                            base=solved.servo_clamped.base,
+                            shoulder=solved.servo_clamped.shoulder,
+                        )
+                        cmd, _ = clamp_servo(cmd)
+                        last_valid_cmd = cmd
+                        if use_serial:
+                            controller.send_servo(cmd)
                 if preview:
                     vis = frame_bgr.copy()
                     cv2.line(vis, (int(cx_img), 0), (int(cx_img), h), (180, 180, 180), 1)

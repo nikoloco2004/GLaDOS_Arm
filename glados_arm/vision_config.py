@@ -32,7 +32,7 @@ CONTROL_MODE = "ik"
 # Image X correction (normalized) -> base yaw delta (rad/frame)
 TRACK_BASE_RAD_PER_NORM = 0.20
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
-TRACK_Z_MM_PER_NORM = 18.0
+TRACK_Z_MM_PER_NORM = 10.0
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
 # Cross-axis coupling: x correction can influence vertical z correction (camera/geometry coupling).
@@ -51,7 +51,7 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.08
-MAX_Z_STEP_MM = 10.0
+MAX_Z_STEP_MM = 6.0
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.35
 
@@ -69,8 +69,8 @@ DIST_ALPHA = 0.25
 DIST_ENABLE_AFTER_LOCK = True
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
-TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 14.0
-TRACK_SHOULDER_ASSIST_MAX_DEG = 28
+TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 8.0
+TRACK_SHOULDER_ASSIST_MAX_DEG = 16
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 6
@@ -79,10 +79,15 @@ ENGAGE_DOWN_PER_FRAME = 0.35
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
-TRACK_WRIST_DEG_PER_NORM = 40.0
-TRACK_WRIST_MIN_STEP_DEG = 5
-TRACK_WRIST_MAX_TRIM_DEG = 55
+TRACK_WRIST_DEG_PER_NORM = 60.0
+TRACK_WRIST_MIN_STEP_DEG = 8
+TRACK_WRIST_MAX_TRIM_DEG = 70
 SIGN_ERROR_Y_WRIST = 1.0
+
+# When no face is detected, gently settle vertical chain toward neutral so it
+# does not remain "looking up" at the last lock point.
+NO_FACE_VERTICAL_RETURN_ENABLE = True
+NO_FACE_Z_RETURN_MM_PER_FRAME = 2.5
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
 TRACK_DEADBAND = 0.03

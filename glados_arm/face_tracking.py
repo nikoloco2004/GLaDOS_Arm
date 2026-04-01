@@ -309,6 +309,7 @@ def run_tracking(
             corr_y_px = 0.0
             dist_err_px = 0.0
             dist_step_mm = 0.0
+            dist_step_z_mm = 0.0
             z_err_mm = 0.0
 
             if len(faces) > 0:
@@ -456,6 +457,8 @@ def run_tracking(
                         dist_err_limit = max(1.0, float(getattr(vc, "DIST_ERR_CLAMP_PX", 120.0)))
                         dist_mm_per_px = float(getattr(vc, "DIST_MM_PER_PX", 0.35))
                         dist_max_step = max(0.1, float(getattr(vc, "DIST_MAX_STEP_MM", 8.0)))
+                        dist_z_mm_per_px = float(getattr(vc, "DIST_Z_MM_PER_PX", 0.0))
+                        dist_z_max_step = max(0.0, float(getattr(vc, "DIST_Z_MAX_STEP_MM", 0.0)))
 
                         dist_allowed = (not bool(getattr(vc, "DIST_ENABLE_AFTER_LOCK", True))) or (engage >= 0.95)
                         if dist_allowed:
@@ -471,6 +474,12 @@ def run_tracking(
                             )
                             # Smaller face (farther) => positive dist_err => increase x target (reach out).
                             target_x_mm += dist_step_mm
+                            dist_step_z_mm = _clamp(
+                                float(getattr(vc, "DIST_SIGN_Z", 1.0)) * dist_err_px * dist_z_mm_per_px,
+                                -dist_z_max_step,
+                                dist_z_max_step,
+                            )
+                            target_z_mm += dist_step_z_mm
 
                     if bool(getattr(vc, "DIST_SHOULDER_ASSIST_ENABLE", True)):
                         shoulder_dist_assist_deg = int(
@@ -636,6 +645,15 @@ def run_tracking(
                                 vis,
                                 f"engage={engage:.2f} dist face_w={face_w_show:5.1f}px target={float(getattr(vc, 'DESIRED_FACE_WIDTH_PX', 160.0)):5.1f}px err={dist_err_px:+5.1f}px dx={dist_step_mm:+4.1f}mm",
                                 (10, 168),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.5,
+                                (200, 255, 200),
+                                2,
+                            )
+                            cv2.putText(
+                                vis,
+                                f"dist dz={dist_step_z_mm:+4.1f}mm",
+                                (10, 192),
                                 cv2.FONT_HERSHEY_SIMPLEX,
                                 0.5,
                                 (200, 255, 200),

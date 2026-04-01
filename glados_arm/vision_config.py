@@ -70,6 +70,10 @@ DIST_ALPHA = 0.40
 DIST_ENABLE_AFTER_LOCK = True
 # Distance sign: +1 means smaller face -> increase x target; -1 flips behavior.
 DIST_SIGN_X = -1.0
+# Optional distance->z coupling so shoulder participates from range changes.
+DIST_SIGN_Z = 1.0
+DIST_Z_MM_PER_PX = 0.30
+DIST_Z_MAX_STEP_MM = 4.0
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
 TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 0.0

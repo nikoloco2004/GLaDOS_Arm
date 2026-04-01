@@ -346,12 +346,6 @@ def run_tracking(
                     base_step = (
                         vc.SIGN_ERROR_X_BASE * corr_x_ctrl * float(getattr(vc, "TRACK_BASE_RAD_PER_NORM", 0.04))
                     )
-                    # Sustained-drive bias: helps reach near servo limits under persistent large error
-                    # without using overly aggressive proportional gain.
-                    bias_thr = float(getattr(vc, "BASE_BIAS_THRESHOLD_NORM", 0.18))
-                    bias_mag = float(getattr(vc, "BASE_BIAS_RAD_PER_FRAME", 0.03))
-                    if abs(corr_x_norm) > bias_thr:
-                        base_step += (bias_mag if corr_x_norm > 0 else -bias_mag) * float(getattr(vc, "SIGN_ERROR_X_BASE", 1.0))
                     base_step = _clamp(
                         base_step,
                         -float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08)),

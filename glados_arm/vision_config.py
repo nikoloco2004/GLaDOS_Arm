@@ -30,7 +30,7 @@ CONTROL_MODE = "ik"
 
 # IK live-target tuning (used when CONTROL_MODE == "ik")
 # Image X correction (normalized) -> base yaw delta (rad/frame)
-TRACK_BASE_RAD_PER_NORM = 0.22
+TRACK_BASE_RAD_PER_NORM = 0.20
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
 TRACK_Z_MM_PER_NORM = 12.0
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
@@ -49,11 +49,11 @@ TARGET_X_MAX_MM = 230.0
 TARGET_Z_MIN_MM = 0.0
 TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
-BASE_YAW_MAX_DEG = 95.0
-MAX_BASE_YAW_STEP_RAD = 0.10
+BASE_YAW_MAX_DEG = 130.0
+MAX_BASE_YAW_STEP_RAD = 0.08
 MAX_Z_STEP_MM = 10.0
 MAX_X_STEP_MM = 3.0
-FACE_CENTER_ALPHA = 0.45
+FACE_CENTER_ALPHA = 0.35
 
 # Wrist participation for vertical correction in IK mode (degrees/frame per normalized error).
 # Increased so wrist contributes clearly to Y tracking.
@@ -61,23 +61,17 @@ TRACK_WRIST_DEG_PER_NORM = 10.0
 SIGN_ERROR_Y_WRIST = -1.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
-TRACK_DEADBAND = 0.01
+TRACK_DEADBAND = 0.03
 
 # Adaptive ramping:
 # Start with gentle correction, then ramp up if target stays outside center for multiple frames.
 # This keeps first response smooth but makes persistent errors react faster.
 RAMP_ENABLE = True
 RAMP_START_ERROR = 0.10      # normalized error before ramp starts to build
-RAMP_UP_PER_FRAME = 0.16     # how quickly gain ramps up while off-center
+RAMP_UP_PER_FRAME = 0.10     # how quickly gain ramps up while off-center
 RAMP_DOWN_PER_FRAME = 0.20   # how quickly gain falls back near center
 RAMP_MIN = 1.0               # initial correction multiplier
 RAMP_MAX = 2.2               # max boosted multiplier
-
-# Base anti-overshoot + sustained-drive terms:
-# add a small constant bias when error stays far from center so it can continue
-# marching toward limits without requiring huge proportional gain.
-BASE_BIAS_THRESHOLD_NORM = 0.18
-BASE_BIAS_RAD_PER_FRAME = 0.03
 
 # Degrees added per frame per unit normalized error (after deadband). Tune on hardware.
 # Horizontal: positive error_x = face to the right of frame center → increase base if SIGN_BASE matches.

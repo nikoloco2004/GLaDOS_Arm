@@ -245,6 +245,8 @@ def run_tracking(
     filt_face_w: float | None = None
     x_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
     y_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
+    wrist_trim_state = 0.0
+    wrist_trim_last = 0
     face_lock_frames = 0
     engage = 0.0
 
@@ -385,6 +387,12 @@ def run_tracking(
                     wrist_trim_deg = wrist_min_step if wrist_cmd > 0.0 else -wrist_min_step
                 wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
                 wrist_trim_deg = max(-wrist_max_trim, min(wrist_max_trim, wrist_trim_deg))
+                wrist_alpha = _clamp(float(getattr(vc, "WRIST_SMOOTH_ALPHA", 0.25)), 0.0, 1.0)
+                wrist_trim_state = (1.0 - wrist_alpha) * wrist_trim_state + wrist_alpha * float(wrist_trim_deg)
+                wrist_trim_deg = int(round(wrist_trim_state))
+                wrist_step_max = max(1, int(getattr(vc, "WRIST_MAX_STEP_PER_FRAME_DEG", 4)))
+                wrist_trim_deg = int(round(_step_toward(float(wrist_trim_last), float(wrist_trim_deg), float(wrist_step_max))))
+                wrist_trim_last = wrist_trim_deg
                 shoulder_assist_deg = int(
                     round(
                         float(getattr(vc, "SIGN_ERROR_Y_SHOULDER", 1.0))

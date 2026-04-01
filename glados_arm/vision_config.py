@@ -33,12 +33,12 @@ CONTROL_MODE = "ik"
 TRACK_BASE_RAD_PER_NORM = 0.20
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
 # Kept intentionally low so Y behavior is mostly wrist-led.
-TRACK_Z_MM_PER_NORM = 4.0
+TRACK_Z_MM_PER_NORM = 0.0
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
 # Cross-axis coupling: x correction can influence vertical z correction (camera/geometry coupling).
 # effective_y_for_z = y + SIGN_ERROR_X_TO_Z * TRACK_Z_FROM_X_MIX * x
-TRACK_Z_FROM_X_MIX = 0.10
+TRACK_Z_FROM_X_MIX = 0.0
 SIGN_ERROR_X_TO_Z = 1.0
 IK_PREFER = "elbow_up"
 IK_HOLD_LAST_ON_FAIL = True
@@ -52,7 +52,7 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.08
-MAX_Z_STEP_MM = 2.5
+MAX_Z_STEP_MM = 0.0
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.35
 
@@ -82,10 +82,12 @@ ENGAGE_DOWN_PER_FRAME = 0.35
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
-TRACK_WRIST_DEG_PER_NORM = 85.0
-TRACK_WRIST_MIN_STEP_DEG = 10
+TRACK_WRIST_DEG_PER_NORM = 70.0
+TRACK_WRIST_MIN_STEP_DEG = 2
 TRACK_WRIST_MAX_TRIM_DEG = 95
 SIGN_ERROR_Y_WRIST = 1.0
+WRIST_SMOOTH_ALPHA = 0.25
+WRIST_MAX_STEP_PER_FRAME_DEG = 4
 
 # When no face is detected, gently settle vertical chain toward neutral so it
 # does not remain "looking up" at the last lock point.

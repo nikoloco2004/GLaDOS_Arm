@@ -55,6 +55,18 @@ MAX_Z_STEP_MM = 10.0
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.35
 
+# Distance control from face box size (applies in IK mode).
+# We estimate relative distance from detected face width in pixels:
+# larger face -> person is closer, smaller face -> person is farther.
+# The controller nudges target_x_mm (range depth) toward DESIRED_FACE_WIDTH_PX.
+DIST_CONTROL_ENABLE = True
+DESIRED_FACE_WIDTH_PX = 160.0
+DIST_DEADBAND_PX = 10.0
+DIST_ERR_CLAMP_PX = 120.0
+DIST_MM_PER_PX = 0.35
+DIST_MAX_STEP_MM = 8.0
+DIST_ALPHA = 0.25
+
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
 TRACK_WRIST_DEG_PER_NORM = 40.0

@@ -242,6 +242,7 @@ def run_tracking(
     last_frame_t = time.time()
     filt_cx: float | None = None
     filt_cy: float | None = None
+    filt_face_w: float | None = None
     x_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
     y_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
 
@@ -302,6 +303,8 @@ def run_tracking(
             corr_y_norm = 0.0
             corr_x_px = 0.0
             corr_y_px = 0.0
+            dist_err_px = 0.0
+            dist_step_mm = 0.0
 
             if len(faces) > 0:
                 areas = [fw * fh for (_x, _y, fw, fh) in faces]
@@ -320,6 +323,12 @@ def run_tracking(
                 else:
                     filt_cx = (1.0 - alpha) * filt_cx + alpha * cx
                     filt_cy = (1.0 - alpha) * filt_cy + alpha * cy
+
+                dist_alpha = float(getattr(vc, "DIST_ALPHA", 0.25))
+                if filt_face_w is None:
+                    filt_face_w = float(fw)
+                else:
+                    filt_face_w = (1.0 - dist_alpha) * filt_face_w + dist_alpha * float(fw)
 
                 err_x = (filt_cx - cx_img) / max(cx_img, 1.0)  # face right => +
                 err_y = (cy_img - filt_cy) / max(cy_img, 1.0)  # face above => +
@@ -398,6 +407,22 @@ def run_tracking(
                         float(getattr(vc, "MAX_X_STEP_MM", 3.0)),
                     )
                     target_x_mm += x_step
+
+                    if bool(getattr(vc, "DIST_CONTROL_ENABLE", True)):
+                        desired_face_w = float(getattr(vc, "DESIRED_FACE_WIDTH_PX", 160.0))
+                        dist_db = max(0.0, float(getattr(vc, "DIST_DEADBAND_PX", 10.0)))
+                        dist_err_limit = max(1.0, float(getattr(vc, "DIST_ERR_CLAMP_PX", 120.0)))
+                        dist_mm_per_px = float(getattr(vc, "DIST_MM_PER_PX", 0.35))
+                        dist_max_step = max(0.1, float(getattr(vc, "DIST_MAX_STEP_MM", 8.0)))
+
+                        measured_face_w = float(filt_face_w if filt_face_w is not None else fw)
+                        dist_err_px = desired_face_w - measured_face_w
+                        if abs(dist_err_px) < dist_db:
+                            dist_err_px = 0.0
+                        dist_err_px = _clamp(dist_err_px, -dist_err_limit, dist_err_limit)
+                        dist_step_mm = _clamp(dist_err_px * dist_mm_per_px, -dist_max_step, dist_max_step)
+                        # Smaller face (farther) => positive dist_err => increase x target (reach out).
+                        target_x_mm += dist_step_mm
 
                     target_x_mm = max(float(getattr(vc, "TARGET_X_MIN_MM", 100.0)), min(float(getattr(vc, "TARGET_X_MAX_MM", 230.0)), target_x_mm))
                     target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm))
@@ -534,6 +559,17 @@ def run_tracking(
                             (200, 255, 200),
                             2,
                         )
+                        if bool(getattr(vc, "DIST_CONTROL_ENABLE", True)):
+                            face_w_show = float(filt_face_w if filt_face_w is not None else fw)
+                            cv2.putText(
+                                vis,
+                                f"dist face_w={face_w_show:5.1f}px target={float(getattr(vc, 'DESIRED_FACE_WIDTH_PX', 160.0)):5.1f}px err={dist_err_px:+5.1f}px dx={dist_step_mm:+4.1f}mm",
+                                (10, 144),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.5,
+                                (200, 255, 200),
+                                2,
+                            )
                     cv2.imshow("GLaDOS face track", vis)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break

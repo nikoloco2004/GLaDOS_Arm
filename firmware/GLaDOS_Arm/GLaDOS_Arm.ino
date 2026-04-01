@@ -68,6 +68,8 @@ constexpr size_t SERIAL_LINE_MAX = 128;
 constexpr unsigned int SERVO_HZ = 50;
 constexpr float DEFAULT_SLEW_DEG_PER_SEC = 360.0f;
 constexpr unsigned long PCA_RETRY_MS = 500;
+constexpr unsigned long PCA_REASSERT_INTERVAL_MS = 50;
+constexpr uint8_t PCA_REASSERT_CYCLES = 30;
 
 // ---------------------------------------------------------------------------
 enum JointIndex : uint8_t {
@@ -98,6 +100,8 @@ unsigned long lastServoMs = 0;
 unsigned long lastLoopMs = 0;
 unsigned long lastPcaRetryMs = 0;
 bool pcaReady = false;
+unsigned long lastPcaReassertMs = 0;
+uint8_t pcaReassertRemaining = 0;
 
 // ---------------------------------------------------------------------------
 static int clampJoint(JointIndex j, int v) {
@@ -131,11 +135,22 @@ static void writeJoint(JointIndex j, int deg) {
   setChannelPwmTicks(kPcaChannel[j], ticks);
 }
 
+static void applyTargetsNow() {
+  for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
+    writeJoint(static_cast<JointIndex>(j), targetDeg[j]);
+  }
+}
+
 static void applyNeutral() {
   for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
     targetDeg[j] = kNeutralDeg[j];
-    writeJoint(static_cast<JointIndex>(j), kNeutralDeg[j]);
   }
+  applyTargetsNow();
+}
+
+static void armPcaReassert() {
+  pcaReassertRemaining = PCA_REASSERT_CYCLES;
+  lastPcaReassertMs = 0;
 }
 
 static void updateSlew() {
@@ -189,6 +204,7 @@ static void printHelp() {
   Serial.println(F("  DEBUG <0|1>"));
   Serial.println(F("  STATUS"));
   Serial.println(F("  I2C_SCAN"));
+  Serial.println(F("  PCA_REINIT"));
 }
 
 static uint8_t i2cProbe(uint8_t addr) {
@@ -204,6 +220,7 @@ static bool tryInitPca9685() {
   pwm.setPWMFreq(SERVO_FREQ_HZ);
   delay(10);
   pcaReady = true;
+  armPcaReassert();
   return true;
 }
 
@@ -256,6 +273,17 @@ static void handleLine(char* line) {
   }
   if (strcmp(cmd, "I2C_SCAN") == 0) {
     printI2cScan();
+    return;
+  }
+  if (strcmp(cmd, "PCA_REINIT") == 0) {
+    pcaReady = false;
+    if (tryInitPca9685()) {
+      applyTargetsNow();
+      Serial.println(F("OK PCA_REINIT"));
+    } else {
+      Serial.println(F("ERR PCA_REINIT failed (PCA not detected)"));
+    }
+    if (debugEnabled) printStatus();
     return;
   }
   if (strcmp(cmd, "DEBUG") == 0) {
@@ -349,7 +377,7 @@ void setup() {
   }
 
   if (tryInitPca9685()) {
-    applyNeutral();
+    applyTargetsNow();
     Serial.println(F("OK PCA9685 ready; neutral applied"));
   } else {
     Serial.println(F("WARN PCA9685 not ready at boot; will retry automatically"));
@@ -368,10 +396,17 @@ void loop() {
   if (!pcaReady && (now - lastPcaRetryMs >= PCA_RETRY_MS)) {
     lastPcaRetryMs = now;
     if (tryInitPca9685()) {
-      applyNeutral();
+      applyTargetsNow();
       Serial.println(F("OK PCA9685 online; neutral applied"));
       if (debugEnabled) printStatus();
     }
+  }
+
+  if (pcaReady && pcaReassertRemaining > 0 &&
+      (lastPcaReassertMs == 0 || now - lastPcaReassertMs >= PCA_REASSERT_INTERVAL_MS)) {
+    lastPcaReassertMs = now;
+    applyTargetsNow();
+    --pcaReassertRemaining;
   }
 
   if (now - lastServoMs >= 1000UL / SERVO_HZ) {

@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+from collections import Counter
 
 from . import config, kinematics
 from .controller import (
@@ -159,6 +160,97 @@ def cmd_track(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_ik_benchmark(args: argparse.Namespace) -> int:
+    """
+    Evaluate current IK + mapping quality over an x/z grid.
+    Reports:
+      - geometric IK success rate (math reachable)
+      - servo-feasible rate (after model->servo mapping with limits)
+      - FK reconstruction error stats for successful IK points
+    """
+    x_min = args.x_min
+    x_max = args.x_max
+    z_min = args.z_min
+    z_max = args.z_max
+    nx = max(2, int(args.nx))
+    nz = max(2, int(args.nz))
+    prefer = args.prefer
+
+    total = 0
+    ik_ok = 0
+    servo_ok = 0
+    errors_mm: list[float] = []
+    fail_reasons: Counter[str] = Counter()
+    clip_reasons: Counter[str] = Counter()
+
+    for iz in range(nz):
+        z = z_min + (z_max - z_min) * (iz / (nz - 1))
+        for ix in range(nx):
+            x = x_min + (x_max - x_min) * (ix / (nx - 1))
+            total += 1
+
+            ik = kinematics.inverse_kinematics_plane(x, z, prefer=prefer)
+            if not ik.ok:
+                fail_reasons[ik.reason] += 1
+                continue
+            ik_ok += 1
+
+            fk = kinematics.forward_kinematics(ik.q_shoulder, ik.q_elbow)
+            err = math.hypot(fk.tip.x - x, fk.tip.z - z)
+            errors_mm.append(err)
+
+            # Reuse existing controller path for model->servo feasibility checks.
+            solved: VerticalSolveResult = solve_vertical_plane(
+                x_mm=x,
+                z_mm=z,
+                base_yaw_rad=0.0,
+                q_wrist_rad=0.0,
+                prefer=prefer,
+            )
+            if solved.clip_notes:
+                for n in solved.clip_notes:
+                    clip_reasons[n] += 1
+            if solved.ok:
+                servo_ok += 1
+
+    if total == 0:
+        print("No samples.")
+        return 2
+
+    ik_rate = 100.0 * ik_ok / total
+    servo_rate = 100.0 * servo_ok / total
+    mean_err = (sum(errors_mm) / len(errors_mm)) if errors_mm else float("nan")
+    max_err = (max(errors_mm)) if errors_mm else float("nan")
+
+    print("IK benchmark (vertical plane)")
+    print(f"grid: x=[{x_min:.1f},{x_max:.1f}] z=[{z_min:.1f},{z_max:.1f}] samples={nx}x{nz} total={total}")
+    print(f"prefer_branch={prefer}")
+    print(f"ik_ok={ik_ok}/{total} ({ik_rate:.1f}%)")
+    print(f"servo_feasible={servo_ok}/{total} ({servo_rate:.1f}%)")
+    print(f"fk_reconstruction_error_mm mean={mean_err:.4f} max={max_err:.4f}")
+
+    if fail_reasons:
+        print("ik_fail_reasons:")
+        for k, v in fail_reasons.most_common():
+            print(f"  {k}: {v}")
+    if clip_reasons:
+        print("servo_clip_reasons:")
+        for k, v in clip_reasons.most_common():
+            print(f"  {k}: {v}")
+    else:
+        print("servo_clip_reasons: none")
+
+    # Non-zero exit if the benchmark quality is poor by simple thresholds.
+    # This makes it script-friendly on Pi.
+    if args.max_mean_err_mm is not None and mean_err > args.max_mean_err_mm:
+        print(f"FAIL threshold: mean_err {mean_err:.4f} > {args.max_mean_err_mm:.4f}")
+        return 3
+    if args.min_servo_ok_rate is not None and servo_rate < args.min_servo_ok_rate:
+        print(f"FAIL threshold: servo_feasible_rate {servo_rate:.2f}% < {args.min_servo_ok_rate:.2f}%")
+        return 4
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="GLaDOS arm control / kinematics CLI")
     sub = p.add_subparsers(dest="command", required=True)
@@ -228,6 +320,18 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--width", type=int, default=None)
     tr.add_argument("--height", type=int, default=None)
     tr.set_defaults(func=cmd_track)
+
+    ikb = sub.add_parser("ik-benchmark", help="benchmark vertical-plane IK + mapping over grid")
+    ikb.add_argument("--x-min", type=float, default=40.0)
+    ikb.add_argument("--x-max", type=float, default=240.0)
+    ikb.add_argument("--z-min", type=float, default=-80.0)
+    ikb.add_argument("--z-max", type=float, default=180.0)
+    ikb.add_argument("--nx", type=int, default=33)
+    ikb.add_argument("--nz", type=int, default=33)
+    ikb.add_argument("--prefer", choices=("elbow_up", "elbow_down"), default="elbow_up")
+    ikb.add_argument("--max-mean-err-mm", type=float, default=None)
+    ikb.add_argument("--min-servo-ok-rate", type=float, default=None, help="percent, e.g. 80")
+    ikb.set_defaults(func=cmd_ik_benchmark)
 
     return p
 

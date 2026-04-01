@@ -225,6 +225,8 @@ def run_tracking(
     last_frame_t = time.time()
     filt_cx: float | None = None
     filt_cy: float | None = None
+    x_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
+    y_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
 
     try:
         while True:
@@ -309,17 +311,40 @@ def run_tracking(
                 corr_y_norm = _apply_deadband(err_y, vc.TRACK_DEADBAND)
                 corr_x_px = corr_x_norm * cx_img
                 corr_y_px = corr_y_norm * cy_img
+                corr_x_ctrl = corr_x_norm
+                corr_y_ctrl = corr_y_norm
+
+                if bool(getattr(vc, "RAMP_ENABLE", True)):
+                    ramp_start = float(getattr(vc, "RAMP_START_ERROR", 0.10))
+                    ramp_up = float(getattr(vc, "RAMP_UP_PER_FRAME", 0.10))
+                    ramp_down = float(getattr(vc, "RAMP_DOWN_PER_FRAME", 0.20))
+                    ramp_min = float(getattr(vc, "RAMP_MIN", 1.0))
+                    ramp_max = float(getattr(vc, "RAMP_MAX", 2.2))
+
+                    ax = abs(corr_x_norm)
+                    ay = abs(corr_y_norm)
+                    if ax > ramp_start:
+                        x_ramp = min(ramp_max, x_ramp + ramp_up * (ax - ramp_start) / max(1e-6, (1.0 - ramp_start)))
+                    else:
+                        x_ramp = max(ramp_min, x_ramp - ramp_down)
+                    if ay > ramp_start:
+                        y_ramp = min(ramp_max, y_ramp + ramp_up * (ay - ramp_start) / max(1e-6, (1.0 - ramp_start)))
+                    else:
+                        y_ramp = max(ramp_min, y_ramp - ramp_down)
+
+                    corr_x_ctrl = corr_x_norm * x_ramp
+                    corr_y_ctrl = corr_y_norm * y_ramp
                 wrist_trim_deg = int(
                     round(
                         float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
-                        * corr_y_norm
+                        * corr_y_ctrl
                         * float(getattr(vc, "TRACK_WRIST_DEG_PER_NORM", 0.8))
                     )
                 )
 
                 if ctl == "ik":
                     base_step = (
-                        vc.SIGN_ERROR_X_BASE * corr_x_norm * float(getattr(vc, "TRACK_BASE_RAD_PER_NORM", 0.04))
+                        vc.SIGN_ERROR_X_BASE * corr_x_ctrl * float(getattr(vc, "TRACK_BASE_RAD_PER_NORM", 0.04))
                     )
                     base_step = _clamp(
                         base_step,
@@ -331,7 +356,7 @@ def run_tracking(
                     base_yaw_rad = _clamp(base_yaw_rad, -base_yaw_lim, base_yaw_lim)
 
                     z_step = (
-                        vc.SIGN_ERROR_Y_SHOULDER * corr_y_norm * float(getattr(vc, "TRACK_Z_MM_PER_NORM", 10.0))
+                        vc.SIGN_ERROR_Y_SHOULDER * corr_y_ctrl * float(getattr(vc, "TRACK_Z_MM_PER_NORM", 10.0))
                     )
                     z_step = _clamp(
                         z_step,
@@ -341,7 +366,7 @@ def run_tracking(
                     target_z_mm += z_step
 
                     x_step = (
-                        vc.SIGN_ERROR_X_BASE * corr_x_norm * float(getattr(vc, "TRACK_X_MM_PER_NORM", 0.0))
+                        vc.SIGN_ERROR_X_BASE * corr_x_ctrl * float(getattr(vc, "TRACK_X_MM_PER_NORM", 0.0))
                     )
                     x_step = _clamp(
                         x_step,
@@ -400,13 +425,13 @@ def run_tracking(
                         cmd, _ = clamp_servo(cmd)
                 else:
                     d_base = int(
-                        round(vc.SIGN_ERROR_X_BASE * corr_x_norm * vc.TRACK_GAIN_BASE_DEG)
+                        round(vc.SIGN_ERROR_X_BASE * corr_x_ctrl * vc.TRACK_GAIN_BASE_DEG)
                     )
                     d_sh = int(
-                        round(vc.SIGN_ERROR_Y_SHOULDER * corr_y_norm * vc.TRACK_GAIN_SHOULDER_DEG)
+                        round(vc.SIGN_ERROR_Y_SHOULDER * corr_y_ctrl * vc.TRACK_GAIN_SHOULDER_DEG)
                     )
                     d_el = int(
-                        round(vc.SIGN_ERROR_Y_ELBOW * corr_y_norm * vc.TRACK_GAIN_ELBOW_DEG)
+                        round(vc.SIGN_ERROR_Y_ELBOW * corr_y_ctrl * vc.TRACK_GAIN_ELBOW_DEG)
                     )
                     cmd = ServoCommand(
                         wrist=config.NEUTRAL_WRIST,
@@ -446,7 +471,7 @@ def run_tracking(
                     )
                     cv2.putText(
                         vis,
-                        f"corr x:{corr_x_px:+5.0f}px ({corr_x_norm:+.3f}) y:{corr_y_px:+5.0f}px ({corr_y_norm:+.3f})",
+                        f"corr x:{corr_x_px:+5.0f}px ({corr_x_norm:+.3f}->{corr_x_ctrl:+.3f}) y:{corr_y_px:+5.0f}px ({corr_y_norm:+.3f}->{corr_y_ctrl:+.3f})",
                         (10, 72),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.55,
@@ -456,7 +481,7 @@ def run_tracking(
                     if ctl == "ik":
                         cv2.putText(
                             vis,
-                            f"ik x={target_x_mm:5.1f} z={target_z_mm:5.1f} yaw={base_yaw_rad:+.3f} status={ik_status}",
+                            f"ik x={target_x_mm:5.1f} z={target_z_mm:5.1f} yaw={base_yaw_rad:+.3f} ramp x={x_ramp:.2f} y={y_ramp:.2f} status={ik_status}",
                             (10, 96),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.5,

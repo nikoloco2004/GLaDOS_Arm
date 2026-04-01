@@ -59,6 +59,16 @@ SIGN_ERROR_Y_WRIST = 1.0
 # Normalized error deadband (0..1) — ignore jitter inside this band
 TRACK_DEADBAND = 0.03
 
+# Adaptive ramping:
+# Start with gentle correction, then ramp up if target stays outside center for multiple frames.
+# This keeps first response smooth but makes persistent errors react faster.
+RAMP_ENABLE = True
+RAMP_START_ERROR = 0.10      # normalized error before ramp starts to build
+RAMP_UP_PER_FRAME = 0.10     # how quickly gain ramps up while off-center
+RAMP_DOWN_PER_FRAME = 0.20   # how quickly gain falls back near center
+RAMP_MIN = 1.0               # initial correction multiplier
+RAMP_MAX = 2.2               # max boosted multiplier
+
 # Degrees added per frame per unit normalized error (after deadband). Tune on hardware.
 # Horizontal: positive error_x = face to the right of frame center → increase base if SIGN_BASE matches.
 TRACK_GAIN_BASE_DEG = 2.5

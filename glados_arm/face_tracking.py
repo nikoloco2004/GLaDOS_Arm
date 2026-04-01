@@ -15,6 +15,7 @@ Supports:
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -73,6 +74,17 @@ def _apply_deadband(v: float, db: float) -> float:
     if abs(v) < db:
         return 0.0
     return v
+
+
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return lo if v < lo else hi if v > hi else v
+
+
+def _step_toward(cur: float, target: float, max_step: float) -> float:
+    d = target - cur
+    if abs(d) <= max_step:
+        return target
+    return cur + max_step if d > 0 else cur - max_step
 
 
 def resolve_preview_mode(explicit_preview: bool, explicit_no_preview: bool) -> bool:
@@ -211,6 +223,8 @@ def run_tracking(
     last_faces: list[tuple[int, int, int, int]] = []
     fps_ema = 0.0
     last_frame_t = time.time()
+    filt_cx: float | None = None
+    filt_cy: float | None = None
 
     try:
         while True:
@@ -281,8 +295,15 @@ def run_tracking(
                 cx = x + fw * 0.5
                 cy = y + fh * 0.5
 
-                err_x = (cx - cx_img) / max(cx_img, 1.0)  # face right => +
-                err_y = (cy_img - cy) / max(cy_img, 1.0)  # face above => +
+                alpha = float(getattr(vc, "FACE_CENTER_ALPHA", 0.35))
+                if filt_cx is None or filt_cy is None:
+                    filt_cx, filt_cy = cx, cy
+                else:
+                    filt_cx = (1.0 - alpha) * filt_cx + alpha * cx
+                    filt_cy = (1.0 - alpha) * filt_cy + alpha * cy
+
+                err_x = (filt_cx - cx_img) / max(cx_img, 1.0)  # face right => +
+                err_y = (cy_img - filt_cy) / max(cy_img, 1.0)  # face above => +
 
                 corr_x_norm = _apply_deadband(err_x, vc.TRACK_DEADBAND)
                 corr_y_norm = _apply_deadband(err_y, vc.TRACK_DEADBAND)
@@ -290,15 +311,37 @@ def run_tracking(
                 corr_y_px = corr_y_norm * cy_img
 
                 if ctl == "ik":
-                    base_yaw_rad += (
+                    base_step = (
                         vc.SIGN_ERROR_X_BASE * corr_x_norm * float(getattr(vc, "TRACK_BASE_RAD_PER_NORM", 0.04))
                     )
-                    target_z_mm += (
+                    base_step = _clamp(
+                        base_step,
+                        -float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.06)),
+                        float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.06)),
+                    )
+                    base_yaw_rad += base_step
+                    base_yaw_lim = math.radians(float(getattr(vc, "BASE_YAW_MAX_DEG", 75.0)))
+                    base_yaw_rad = _clamp(base_yaw_rad, -base_yaw_lim, base_yaw_lim)
+
+                    z_step = (
                         vc.SIGN_ERROR_Y_SHOULDER * corr_y_norm * float(getattr(vc, "TRACK_Z_MM_PER_NORM", 10.0))
                     )
-                    target_x_mm += (
+                    z_step = _clamp(
+                        z_step,
+                        -float(getattr(vc, "MAX_Z_STEP_MM", 6.0)),
+                        float(getattr(vc, "MAX_Z_STEP_MM", 6.0)),
+                    )
+                    target_z_mm += z_step
+
+                    x_step = (
                         vc.SIGN_ERROR_X_BASE * corr_x_norm * float(getattr(vc, "TRACK_X_MM_PER_NORM", 0.0))
                     )
+                    x_step = _clamp(
+                        x_step,
+                        -float(getattr(vc, "MAX_X_STEP_MM", 3.0)),
+                        float(getattr(vc, "MAX_X_STEP_MM", 3.0)),
+                    )
+                    target_x_mm += x_step
 
                     target_x_mm = max(float(getattr(vc, "TARGET_X_MIN_MM", 100.0)), min(float(getattr(vc, "TARGET_X_MAX_MM", 230.0)), target_x_mm))
                     target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 170.0)), target_z_mm))

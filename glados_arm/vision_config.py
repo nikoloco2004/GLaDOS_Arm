@@ -17,7 +17,7 @@ CAMERA_FPS = 30
 # Downscale width for Haar detection only (speed); full-res frame used for preview & overlay.
 DETECT_MAX_WIDTH = 320
 # Run Haar every N frames and reuse last bbox between detections.
-DETECT_EVERY_N_FRAMES = 2
+DETECT_EVERY_N_FRAMES = 1
 
 # Picamera2 color mode for raw frames: "bgr" or "rgb".
 # On your stack face looked blue with RGB->BGR conversion, so default to BGR.
@@ -30,9 +30,9 @@ CONTROL_MODE = "ik"
 
 # IK live-target tuning (used when CONTROL_MODE == "ik")
 # Image X correction (normalized) -> base yaw delta (rad/frame)
-TRACK_BASE_RAD_PER_NORM = 0.12
+TRACK_BASE_RAD_PER_NORM = 0.20
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
-TRACK_Z_MM_PER_NORM = 10.0
+TRACK_Z_MM_PER_NORM = 7.5
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
 IK_PREFER = "elbow_up"
@@ -44,6 +44,12 @@ TARGET_X_MIN_MM = 100.0
 TARGET_X_MAX_MM = 230.0
 TARGET_Z_MIN_MM = 0.0
 TARGET_Z_MAX_MM = 190.0
+# Additional controller bounds / smoothing
+BASE_YAW_MAX_DEG = 75.0
+MAX_BASE_YAW_STEP_RAD = 0.06
+MAX_Z_STEP_MM = 6.0
+MAX_X_STEP_MM = 3.0
+FACE_CENTER_ALPHA = 0.35
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
 TRACK_DEADBAND = 0.03

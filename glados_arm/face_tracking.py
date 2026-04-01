@@ -371,6 +371,15 @@ def run_tracking(
                     wrist_trim_deg = wrist_min_step if wrist_cmd > 0.0 else -wrist_min_step
                 wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
                 wrist_trim_deg = max(-wrist_max_trim, min(wrist_max_trim, wrist_trim_deg))
+                shoulder_assist_deg = int(
+                    round(
+                        float(getattr(vc, "SIGN_ERROR_Y_SHOULDER", 1.0))
+                        * corr_y_ctrl
+                        * float(getattr(vc, "TRACK_SHOULDER_ASSIST_DEG_PER_NORM", 0.0))
+                    )
+                )
+                shoulder_assist_max = max(0, int(getattr(vc, "TRACK_SHOULDER_ASSIST_MAX_DEG", 0)))
+                shoulder_assist_deg = max(-shoulder_assist_max, min(shoulder_assist_max, shoulder_assist_deg))
 
                 if ctl == "ik":
                     base_step = (
@@ -454,7 +463,7 @@ def run_tracking(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
                             elbow=solved.servo_clamped.elbow,
                             base=solved.servo_clamped.base,
-                            shoulder=solved.servo_clamped.shoulder,
+                            shoulder=solved.servo_clamped.shoulder + shoulder_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
                         last_valid_cmd = cmd
@@ -464,7 +473,7 @@ def run_tracking(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
                             elbow=solved.servo_clamped.elbow,
                             base=solved.servo_clamped.base,
-                            shoulder=solved.servo_clamped.shoulder,
+                            shoulder=solved.servo_clamped.shoulder + shoulder_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
                         last_valid_cmd = cmd
@@ -474,7 +483,7 @@ def run_tracking(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
                             elbow=last_valid_cmd.elbow,
                             base=solved.servo_clamped.base,
-                            shoulder=last_valid_cmd.shoulder,
+                            shoulder=last_valid_cmd.shoulder + shoulder_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
                     else:
@@ -482,7 +491,7 @@ def run_tracking(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
                             elbow=solved.servo_clamped.elbow,
                             base=solved.servo_clamped.base,
-                            shoulder=solved.servo_clamped.shoulder,
+                            shoulder=solved.servo_clamped.shoulder + shoulder_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
                 else:

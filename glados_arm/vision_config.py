@@ -32,7 +32,7 @@ CONTROL_MODE = "ik"
 # Image X correction (normalized) -> base yaw delta (rad/frame)
 TRACK_BASE_RAD_PER_NORM = 0.20
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
-TRACK_Z_MM_PER_NORM = 12.0
+TRACK_Z_MM_PER_NORM = 18.0
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
 # Cross-axis coupling: x correction can influence vertical z correction (camera/geometry coupling).
@@ -63,9 +63,13 @@ DIST_CONTROL_ENABLE = True
 DESIRED_FACE_WIDTH_PX = 160.0
 DIST_DEADBAND_PX = 10.0
 DIST_ERR_CLAMP_PX = 120.0
-DIST_MM_PER_PX = 0.35
-DIST_MAX_STEP_MM = 8.0
+DIST_MM_PER_PX = 0.55
+DIST_MAX_STEP_MM = 12.0
 DIST_ALPHA = 0.25
+
+# Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
+TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 14.0
+TRACK_SHOULDER_ASSIST_MAX_DEG = 28
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.

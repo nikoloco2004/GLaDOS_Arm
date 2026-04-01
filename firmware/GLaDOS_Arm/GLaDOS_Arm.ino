@@ -3,11 +3,10 @@
  *
  * PCA9685 channels 0..3: wrist, elbow, base, shoulder (same as SET_SERVO order).
  *
- * **Angle → PWM (validated behavior):** each clamped joint angle is converted with a
- * **global** linear map `map(deg, 0, 270, PWM_TICK_MIN, PWM_TICK_MAX)` and passed
- * directly to `setPWM` as the third argument (12-bit tick counts), matching the
- * working prototype. Tune `PWM_TICK_MIN` / `PWM_TICK_MAX` if overall travel needs
- * scaling — not the logical angle limits below (those match Python / config).
+ * **Angle → PWM (per-joint calibration):**
+ *   - MG996R joints (wrist/base): conservative ~1000-2000us range
+ *   - DS3225 joints (elbow/shoulder): wider ~500-2500us range
+ * Each joint maps its own logical degree limits to its own PWM tick range.
  *
  * Libraries: Adafruit PWM Servo Driver Library + Adafruit BusIO
  */
@@ -30,13 +29,13 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(PCA9685_I2C_ADDR);
 // ================= PCA9685 SETTINGS =================
 constexpr uint8_t SERVO_FREQ_HZ = 50;
 
-// PCA9685 "off" tick range for setPWM (third arg) — matched working sketch (102–512)
-constexpr uint16_t PWM_TICK_MIN = 102;
-constexpr uint16_t PWM_TICK_MAX = 512;
-
-// Global degree span for tick mapping (same for all joints after per-joint clamp)
-constexpr int ANGLE_MAP_GLOBAL_MIN = 0;
-constexpr int ANGLE_MAP_GLOBAL_MAX = 270;
+// Per-servo-class PWM tick ranges at 50 Hz:
+//   1 tick ~= 4.88us, so:
+//   205 ~= 1000us, 410 ~= 2000us, 102 ~= 500us, 512 ~= 2500us
+constexpr uint16_t PWM_TICK_MG996R_MIN = 205;
+constexpr uint16_t PWM_TICK_MG996R_MAX = 410;
+constexpr uint16_t PWM_TICK_DS3225_MIN = 102;
+constexpr uint16_t PWM_TICK_DS3225_MAX = 512;
 
 // ---------------------------------------------------------------------------
 // Logical degrees — validated; must match glados_arm/config.py
@@ -100,6 +99,19 @@ const int kNeutralDeg[NUM_JOINTS] = {
 // Safer startup pose (not near end-stops). Boot enters this first; NEUTRAL can be commanded later.
 const int kStartupDeg[NUM_JOINTS] = {90, 180, 90, 45};
 
+const uint16_t kPwmTickMin[NUM_JOINTS] = {
+  PWM_TICK_MG996R_MIN,  // wrist (MG996R)
+  PWM_TICK_DS3225_MIN,  // elbow (DS3225)
+  PWM_TICK_MG996R_MIN,  // base (MG996R)
+  PWM_TICK_DS3225_MIN   // shoulder (DS3225)
+};
+const uint16_t kPwmTickMax[NUM_JOINTS] = {
+  PWM_TICK_MG996R_MAX,  // wrist (MG996R)
+  PWM_TICK_DS3225_MAX,  // elbow (DS3225)
+  PWM_TICK_MG996R_MAX,  // base (MG996R)
+  PWM_TICK_DS3225_MAX   // shoulder (DS3225)
+};
+
 int currentDeg[NUM_JOINTS];
 int targetDeg[NUM_JOINTS];
 
@@ -122,13 +134,14 @@ static int clampJoint(JointIndex j, int v) {
   return v;
 }
 
-/// Same rule as working prototype: map(clamped_deg, 0, 270, tick_min, tick_max) → PCA9685 ticks.
-static uint16_t angleToPwmTicks(int deg) {
-  long t = map(static_cast<long>(deg),
-               static_cast<long>(ANGLE_MAP_GLOBAL_MIN),
-               static_cast<long>(ANGLE_MAP_GLOBAL_MAX),
-               static_cast<long>(PWM_TICK_MIN),
-               static_cast<long>(PWM_TICK_MAX));
+/// Per-joint mapping: map(clamped_deg, joint_deg_min..joint_deg_max, joint_tick_min..joint_tick_max).
+static uint16_t angleToPwmTicks(JointIndex j, int deg) {
+  long inMin = static_cast<long>(kMinDeg[j]);
+  long inMax = static_cast<long>(kMaxDeg[j]);
+  long outMin = static_cast<long>(kPwmTickMin[j]);
+  long outMax = static_cast<long>(kPwmTickMax[j]);
+  if (inMax <= inMin) return static_cast<uint16_t>(outMin);
+  long t = map(static_cast<long>(deg), inMin, inMax, outMin, outMax);
   if (t < 0L) t = 0L;
   if (t > 4095L) t = 4095L;
   return static_cast<uint16_t>(t);
@@ -143,7 +156,7 @@ static void setChannelPwmTicks(uint8_t pcaChannel, uint16_t ticks) {
 static void writeJoint(JointIndex j, int deg) {
   deg = clampJoint(j, deg);
   currentDeg[j] = deg;
-  uint16_t ticks = angleToPwmTicks(deg);
+  uint16_t ticks = angleToPwmTicks(j, deg);
   setChannelPwmTicks(kPcaChannel[j], ticks);
 }
 
@@ -416,7 +429,7 @@ void setup() {
   Serial.print(F("INFO PCA init delay ms="));
   Serial.println(PCA_BOOT_INIT_DELAY_MS);
 
-  Serial.println(F("OK GLaDOS_Arm ready (PCA9685 tick map 0-270 -> PWM_TICK_MIN/MAX)"));
+  Serial.println(F("OK GLaDOS_Arm ready (per-joint PWM map: MG996R narrow, DS3225 wide)"));
   printHelp();
 }
 

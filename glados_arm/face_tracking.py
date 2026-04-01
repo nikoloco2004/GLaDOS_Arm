@@ -25,7 +25,7 @@ import numpy as np
 
 from . import config, kinematics, vision_config
 from .controller import RobotController, solve_vertical_plane
-from .mapping import ServoCommand, clamp_servo
+from .mapping import ServoCommand, clamp_servo, servo_to_model
 from .serial_comm import ArmSerial
 
 _HAAR_XML = "haarcascade_frontalface_default.xml"
@@ -496,7 +496,6 @@ def run_tracking(
 
                     target_x_mm = max(float(getattr(vc, "TARGET_X_MIN_MM", 100.0)), min(float(getattr(vc, "TARGET_X_MAX_MM", 230.0)), target_x_mm))
                     target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm))
-                    z_err_mm = target_z_mm - fk0.tip.z
 
                     solved = solve_vertical_plane(
                         x_mm=target_x_mm,
@@ -556,6 +555,11 @@ def run_tracking(
                             shoulder=solved.servo_clamped.shoulder + shoulder_assist_deg + shoulder_dist_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
+
+                    # Real Z error: target plane Z minus estimated Z from the *actual commanded* joints.
+                    est_model = servo_to_model(cmd)
+                    est_fk = kinematics.forward_kinematics(est_model.q_shoulder_rad, est_model.q_elbow_rad)
+                    z_err_mm = target_z_mm - est_fk.tip.z
                 else:
                     d_base = int(
                         round(vc.SIGN_ERROR_X_BASE * corr_x_ctrl * vc.TRACK_GAIN_BASE_DEG)
@@ -671,29 +675,32 @@ def run_tracking(
                 )
                 if ctl == "ik" and bool(getattr(vc, "NO_FACE_VERTICAL_RETURN_ENABLE", True)):
                     z_relax = max(0.0, float(getattr(vc, "NO_FACE_Z_RETURN_MM_PER_FRAME", 2.5)))
+                    x_relax = max(0.0, float(getattr(vc, "NO_FACE_X_RETURN_MM_PER_FRAME", 3.0)))
                     target_z_mm = _step_toward(target_z_mm, fk0.tip.z, z_relax)
-                    target_z_mm = max(
+                    target_x_mm = _step_toward(target_x_mm, fk0.tip.x, x_relax)
+                    target_z_mm = _clamp(
+                        target_z_mm,
                         float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)),
-                        min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm),
+                        float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)),
                     )
-                    solved = solve_vertical_plane(
-                        x_mm=target_x_mm,
-                        z_mm=target_z_mm,
-                        base_yaw_rad=base_yaw_rad,
-                        q_wrist_rad=0.0,
-                        prefer=str(getattr(vc, "IK_PREFER", "elbow_up")),
+                    target_x_mm = _clamp(
+                        target_x_mm,
+                        float(getattr(vc, "TARGET_X_MIN_MM", 100.0)),
+                        float(getattr(vc, "TARGET_X_MAX_MM", 230.0)),
                     )
-                    if solved.ik.ok:
-                        cmd = ServoCommand(
-                            wrist=config.NEUTRAL_WRIST,
-                            elbow=solved.servo_clamped.elbow,
-                            base=solved.servo_clamped.base,
-                            shoulder=solved.servo_clamped.shoulder,
-                        )
-                        cmd, _ = clamp_servo(cmd)
-                        last_valid_cmd = cmd
-                        if use_serial:
-                            controller.send_servo(cmd)
+                    cmd = ServoCommand(
+                        wrist=int(round(_step_toward(float(last_valid_cmd.wrist), float(config.NEUTRAL_WRIST), float(getattr(vc, "NO_FACE_WRIST_RETURN_DEG_PER_FRAME", 4.0))))),
+                        elbow=int(round(_step_toward(float(last_valid_cmd.elbow), float(config.NEUTRAL_ELBOW), float(getattr(vc, "NO_FACE_ELBOW_RETURN_DEG_PER_FRAME", 4.0))))),
+                        base=last_valid_cmd.base,
+                        shoulder=int(round(_step_toward(float(last_valid_cmd.shoulder), float(config.NEUTRAL_SHOULDER), float(getattr(vc, "NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME", 3.0))))),
+                    )
+                    cmd, _ = clamp_servo(cmd)
+                    last_valid_cmd = cmd
+                    est_model = servo_to_model(cmd)
+                    est_fk = kinematics.forward_kinematics(est_model.q_shoulder_rad, est_model.q_elbow_rad)
+                    z_err_mm = target_z_mm - est_fk.tip.z
+                    if use_serial:
+                        controller.send_servo(cmd)
                 if preview:
                     vis = frame_bgr.copy()
                     cv2.line(vis, (int(cx_img), 0), (int(cx_img), h), (180, 180, 180), 1)

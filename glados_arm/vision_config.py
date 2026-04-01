@@ -105,6 +105,10 @@ WRIST_MAX_STEP_PER_FRAME_DEG = 4
 # does not remain "looking up" at the last lock point.
 NO_FACE_VERTICAL_RETURN_ENABLE = True
 NO_FACE_Z_RETURN_MM_PER_FRAME = 2.5
+NO_FACE_X_RETURN_MM_PER_FRAME = 3.0
+NO_FACE_WRIST_RETURN_DEG_PER_FRAME = 4.0
+NO_FACE_ELBOW_RETURN_DEG_PER_FRAME = 4.0
+NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME = 3.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
 TRACK_DEADBAND = 0.03

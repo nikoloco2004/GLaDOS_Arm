@@ -315,8 +315,24 @@ def run_tracking(
                     if solved.ok:
                         cmd = solved.servo_clamped
                         last_valid_cmd = cmd
+                    elif bool(getattr(vc, "IK_ACCEPT_CLAMPED", True)) and solved.ik.ok:
+                        # Accept clamped command so base/x can still move even when vertical chain clips.
+                        # Keep wrist at neutral by design.
+                        cmd = ServoCommand(
+                            wrist=config.NEUTRAL_WRIST,
+                            elbow=solved.servo_clamped.elbow,
+                            base=solved.servo_clamped.base,
+                            shoulder=solved.servo_clamped.shoulder,
+                        )
+                        last_valid_cmd = cmd
                     elif bool(getattr(vc, "IK_HOLD_LAST_ON_FAIL", True)):
-                        cmd = last_valid_cmd
+                        # Preserve horizontal/base correction even when holding vertical state.
+                        cmd = ServoCommand(
+                            wrist=last_valid_cmd.wrist,
+                            elbow=last_valid_cmd.elbow,
+                            base=solved.servo_clamped.base,
+                            shoulder=last_valid_cmd.shoulder,
+                        )
                     else:
                         cmd = solved.servo_clamped
                 else:
@@ -377,7 +393,7 @@ def run_tracking(
                     if ctl == "ik":
                         cv2.putText(
                             vis,
-                            f"ik x={target_x_mm:5.1f} z={target_z_mm:5.1f} status={ik_status}",
+                            f"ik x={target_x_mm:5.1f} z={target_z_mm:5.1f} yaw={base_yaw_rad:+.3f} status={ik_status}",
                             (10, 96),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.5,

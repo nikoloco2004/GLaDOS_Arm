@@ -92,16 +92,15 @@ def _base_yaw_limit_rad() -> float:
     Compute a safe yaw limit that cannot request base servo values outside hardware limits.
     Final limit = min(configured vision cap, physically reachable from neutral by mapping).
     """
-    cfg_lim_deg = abs(float(getattr(vision_config, "BASE_YAW_MAX_DEG", 90.0)))
+    cfg_lim_rad = math.radians(abs(float(getattr(vision_config, "BASE_YAW_MAX_DEG", 90.0))))
     scale = abs(float(getattr(config, "BASE_RAD_TO_SERVO_DEG", 180.0 / math.pi)))
     if scale <= 1e-9:
-        return math.radians(cfg_lim_deg)
+        return cfg_lim_rad
 
-    pos_deg = (float(config.SERVO_BASE_MAX) - float(config.NEUTRAL_BASE)) / scale
-    neg_deg = (float(config.NEUTRAL_BASE) - float(config.SERVO_BASE_MIN)) / scale
-    phys_deg = max(0.0, min(pos_deg, neg_deg))
-    lim_deg = min(cfg_lim_deg, phys_deg)
-    return math.radians(lim_deg)
+    pos_rad = (float(config.SERVO_BASE_MAX) - float(config.NEUTRAL_BASE)) / scale
+    neg_rad = (float(config.NEUTRAL_BASE) - float(config.SERVO_BASE_MIN)) / scale
+    phys_lim_rad = max(0.0, min(pos_rad, neg_rad))
+    return min(cfg_lim_rad, phys_lim_rad)
 
 
 def resolve_preview_mode(explicit_preview: bool, explicit_no_preview: bool) -> bool:

@@ -104,6 +104,16 @@ python -m glados_arm.main track --preview
 
 Frames are captured with **Picamera2**, converted to OpenCV arrays, Haar face detection runs, then normalized bbox error drives **base** (image X) and **shoulder/elbow** (image Y) with clamps. Adjust gains and signs in [`glados_arm/vision_config.py`](glados_arm/vision_config.py).
 
+If preview colors look wrong on your Pi build, force camera color order:
+
+```bash
+python -m glados_arm.main track --color-mode bgr
+# or
+python -m glados_arm.main track --color-mode rgb
+```
+
+For FPS: lower capture size and/or detection cost (see `CAMERA_WIDTH/HEIGHT`, `DETECT_MAX_WIDTH`, `DETECT_EVERY_N_FRAMES` in `vision_config.py`).
+
 ---
 
 ## 7. Tests

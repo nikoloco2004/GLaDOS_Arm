@@ -96,6 +96,7 @@ def run_tracking(
     preview: bool,
     width: int,
     height: int,
+    color_mode: str | None = None,
 ) -> int:
     try:
         from picamera2 import Picamera2  # type: ignore[import-untyped]
@@ -121,8 +122,7 @@ def run_tracking(
         return 1
 
     picam2 = Picamera2()
-    # Force RGB888 then explicitly convert RGB->BGR for OpenCV.
-    # This avoids inconsistent color interpretation across Pi/OpenCV builds.
+    # Use RGB888 for consistent detector input; color_mode controls preview conversion path.
     cfg = picam2.create_preview_configuration(
         main={"size": (width, height), "format": "RGB888"},
         controls={"FrameRate": float(getattr(vc, "CAMERA_FPS", 30))},
@@ -152,6 +152,12 @@ def run_tracking(
         controller.neutral()
 
     cmd = _neutral_command()
+    mode = (color_mode or getattr(vc, "COLOR_MODE", "bgr")).strip().lower()
+    if mode not in ("bgr", "rgb"):
+        print(f"Invalid color mode '{mode}', using 'bgr'.", flush=True)
+        mode = "bgr"
+    detect_every = max(1, int(getattr(vc, "DETECT_EVERY_N_FRAMES", 1)))
+    print(f"Color mode: {mode} | detect_every_n_frames={detect_every}", flush=True)
     print(
         "Tracking: Ctrl+C to stop. Picamera2 + OpenCV; horizontal→base, vertical→shoulder/elbow.",
         flush=True,
@@ -185,13 +191,19 @@ def run_tracking(
             preview = False
 
     det_max_w = getattr(vc, "DETECT_MAX_WIDTH", 640)
+    frame_idx = 0
+    last_faces: list[tuple[int, int, int, int]] = []
 
     try:
         while True:
             raw = picam2.capture_array("main")
             if raw is None or raw.size == 0:
                 continue
-            frame_bgr = cv2.cvtColor(raw, cv2.COLOR_RGB2BGR)
+            # Convert to BGR for OpenCV only when raw is RGB.
+            if mode == "rgb":
+                frame_bgr = cv2.cvtColor(raw, cv2.COLOR_RGB2BGR)
+            else:
+                frame_bgr = raw
 
             h, w = frame_bgr.shape[:2]
             # Optional downscale for Haar (faster); map boxes back to full resolution for control + preview.
@@ -214,12 +226,16 @@ def run_tracking(
                 min_face = vc.HAAR_MIN_SIZE
 
             gray_small = cv2.equalizeHist(gray_small)
-            faces = face_cascade.detectMultiScale(
-                gray_small,
-                scaleFactor=vc.HAAR_SCALE_FACTOR,
-                minNeighbors=vc.HAAR_MIN_NEIGHBORS,
-                minSize=min_face,
-            )
+            run_detect = (frame_idx % detect_every) == 0 or not last_faces
+            if run_detect:
+                detected = face_cascade.detectMultiScale(
+                    gray_small,
+                    scaleFactor=vc.HAAR_SCALE_FACTOR,
+                    minNeighbors=vc.HAAR_MIN_NEIGHBORS,
+                    minSize=min_face,
+                )
+                last_faces = [tuple(map(int, d)) for d in detected]
+            faces = last_faces
             cx_img = w * 0.5
             cy_img = h * 0.5
 
@@ -293,6 +309,7 @@ def run_tracking(
                     cv2.imshow("GLaDOS face track", vis)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
+            frame_idx += 1
 
     except KeyboardInterrupt:
         print("\nStopped.")
@@ -336,6 +353,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--width", type=int, default=vision_config.CAMERA_WIDTH)
     p.add_argument("--height", type=int, default=vision_config.CAMERA_HEIGHT)
+    p.add_argument(
+        "--color-mode",
+        choices=("bgr", "rgb"),
+        default=getattr(vision_config, "COLOR_MODE", "bgr"),
+        help="Interpret Picamera2 raw frame order before OpenCV: bgr or rgb",
+    )
     args = p.parse_args(argv)
     try:
         want_preview = resolve_preview_mode(args.preview, args.no_preview)
@@ -348,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         preview=want_preview,
         width=args.width,
         height=args.height,
+        color_mode=args.color_mode,
     )
 
 

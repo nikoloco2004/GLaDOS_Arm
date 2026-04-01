@@ -6,16 +6,22 @@ Install on Pi: ``sudo apt install -y python3-picamera2 python3-opencv`` (or use 
 
 from __future__ import annotations
 
-# Capture size — **larger = wider field of view** on Pi Camera (small sizes often crop / “zoom”).
-# Tune down if FPS is too low on older Pi models.
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 960
+# Capture size — keep 4:3 to avoid the zoomed/cropped feel on Pi Cam v2.1.
+# Lower than 1280x960 for better FPS.
+CAMERA_WIDTH = 960
+CAMERA_HEIGHT = 720
 
 # Optional cap on frame rate (Picamera2 controls); None = library default
 CAMERA_FPS = 30
 
 # Downscale width for Haar detection only (speed); full-res frame used for preview & overlay.
-DETECT_MAX_WIDTH = 640
+DETECT_MAX_WIDTH = 320
+# Run Haar every N frames and reuse last bbox between detections.
+DETECT_EVERY_N_FRAMES = 2
+
+# Picamera2 color mode for raw frames: "bgr" or "rgb".
+# On your stack face looked blue with RGB->BGR conversion, so default to BGR.
+COLOR_MODE = "bgr"
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
 TRACK_DEADBAND = 0.06

@@ -309,6 +309,7 @@ def run_tracking(
             corr_y_px = 0.0
             dist_err_px = 0.0
             dist_step_mm = 0.0
+            z_err_mm = 0.0
 
             if len(faces) > 0:
                 face_lock_frames += 1
@@ -402,19 +403,6 @@ def run_tracking(
                 )
                 shoulder_assist_max = max(0, int(getattr(vc, "TRACK_SHOULDER_ASSIST_MAX_DEG", 0)))
                 shoulder_assist_deg = max(-shoulder_assist_max, min(shoulder_assist_max, shoulder_assist_deg))
-                shoulder_dist_assist_deg = 0
-                if bool(getattr(vc, "DIST_SHOULDER_ASSIST_ENABLE", True)):
-                    shoulder_dist_assist_deg = int(
-                        round(
-                            float(getattr(vc, "DIST_SIGN_SHOULDER", 1.0))
-                            * dist_err_px
-                            * float(getattr(vc, "DIST_SHOULDER_DEG_PER_PX", 0.0))
-                        )
-                    )
-                    shoulder_dist_max = max(0, int(getattr(vc, "DIST_SHOULDER_MAX_DEG", 28)))
-                    shoulder_dist_assist_deg = max(
-                        -shoulder_dist_max, min(shoulder_dist_max, shoulder_dist_assist_deg)
-                    )
                 elbow_assist_deg = int(
                     round(
                         float(getattr(vc, "SIGN_ERROR_Y_ELBOW", 1.0))
@@ -426,6 +414,7 @@ def run_tracking(
                 elbow_assist_deg = max(-elbow_assist_max, min(elbow_assist_max, elbow_assist_deg))
 
                 if ctl == "ik":
+                    shoulder_dist_assist_deg = 0
                     base_step = (
                         vc.SIGN_ERROR_X_BASE * corr_x_ctrl * float(getattr(vc, "TRACK_BASE_RAD_PER_NORM", 0.04))
                     )
@@ -483,8 +472,22 @@ def run_tracking(
                             # Smaller face (farther) => positive dist_err => increase x target (reach out).
                             target_x_mm += dist_step_mm
 
+                    if bool(getattr(vc, "DIST_SHOULDER_ASSIST_ENABLE", True)):
+                        shoulder_dist_assist_deg = int(
+                            round(
+                                float(getattr(vc, "DIST_SIGN_SHOULDER", 1.0))
+                                * dist_err_px
+                                * float(getattr(vc, "DIST_SHOULDER_DEG_PER_PX", 0.0))
+                            )
+                        )
+                        shoulder_dist_max = max(0, int(getattr(vc, "DIST_SHOULDER_MAX_DEG", 28)))
+                        shoulder_dist_assist_deg = max(
+                            -shoulder_dist_max, min(shoulder_dist_max, shoulder_dist_assist_deg)
+                        )
+
                     target_x_mm = max(float(getattr(vc, "TARGET_X_MIN_MM", 100.0)), min(float(getattr(vc, "TARGET_X_MAX_MM", 230.0)), target_x_mm))
                     target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm))
+                    z_err_mm = target_z_mm - fk0.tip.z
 
                     solved = solve_vertical_plane(
                         x_mm=target_x_mm,
@@ -618,12 +621,21 @@ def run_tracking(
                             (200, 255, 200),
                             2,
                         )
+                        cv2.putText(
+                            vis,
+                            f"z_err={z_err_mm:+5.1f}mm shoulder_dist={shoulder_dist_assist_deg:+d}deg",
+                            (10, 144),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (200, 255, 200),
+                            2,
+                        )
                         if bool(getattr(vc, "DIST_CONTROL_ENABLE", True)):
                             face_w_show = float(filt_face_w if filt_face_w is not None else fw)
                             cv2.putText(
                                 vis,
                                 f"engage={engage:.2f} dist face_w={face_w_show:5.1f}px target={float(getattr(vc, 'DESIRED_FACE_WIDTH_PX', 160.0)):5.1f}px err={dist_err_px:+5.1f}px dx={dist_step_mm:+4.1f}mm",
-                                (10, 144),
+                                (10, 168),
                                 cv2.FONT_HERSHEY_SIMPLEX,
                                 0.5,
                                 (200, 255, 200),

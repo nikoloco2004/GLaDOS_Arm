@@ -68,6 +68,10 @@ constexpr size_t SERIAL_LINE_MAX = 128;
 constexpr unsigned int SERVO_HZ = 50;
 constexpr float DEFAULT_SLEW_DEG_PER_SEC = 360.0f;
 constexpr unsigned long PCA_RETRY_MS = 500;
+constexpr unsigned long PCA_BOOT_INIT_DELAY_MS = 1500;
+constexpr unsigned long PCA_STARTUP_STABILIZE_MS = 8000;
+constexpr unsigned long PCA_STARTUP_REFRESH_MS = 250;
+constexpr unsigned long PCA_KEEPALIVE_MS = 2000;
 constexpr unsigned long PCA_REASSERT_INTERVAL_MS = 50;
 constexpr uint8_t PCA_REASSERT_CYCLES = 30;
 
@@ -100,6 +104,9 @@ unsigned long lastServoMs = 0;
 unsigned long lastLoopMs = 0;
 unsigned long lastPcaRetryMs = 0;
 bool pcaReady = false;
+unsigned long bootMs = 0;
+unsigned long pcaOnlineSinceMs = 0;
+unsigned long lastPcaKeepaliveMs = 0;
 unsigned long lastPcaReassertMs = 0;
 uint8_t pcaReassertRemaining = 0;
 
@@ -151,6 +158,12 @@ static void applyNeutral() {
 static void armPcaReassert() {
   pcaReassertRemaining = PCA_REASSERT_CYCLES;
   lastPcaReassertMs = 0;
+}
+
+static void refreshPcaOutputs() {
+  if (!pcaReady) return;
+  pwm.setPWMFreq(SERVO_FREQ_HZ);
+  applyTargetsNow();
 }
 
 static void updateSlew() {
@@ -220,6 +233,8 @@ static bool tryInitPca9685() {
   pwm.setPWMFreq(SERVO_FREQ_HZ);
   delay(10);
   pcaReady = true;
+  pcaOnlineSinceMs = millis();
+  lastPcaKeepaliveMs = 0;
   armPcaReassert();
   return true;
 }
@@ -333,10 +348,18 @@ static void handleLine(char* line) {
     return;
   }
   if (strcmp(cmd, "SET_SERVO") == 0) {
-    int w = atoi(strtok(nullptr, " \t\r\n"));
-    int e = atoi(strtok(nullptr, " \t\r\n"));
-    int b = atoi(strtok(nullptr, " \t\r\n"));
-    int s = atoi(strtok(nullptr, " \t\r\n"));
+    char* ws = strtok(nullptr, " \t\r\n");
+    char* es = strtok(nullptr, " \t\r\n");
+    char* bs = strtok(nullptr, " \t\r\n");
+    char* ss = strtok(nullptr, " \t\r\n");
+    if (!ws || !es || !bs || !ss) {
+      Serial.println(F("ERR SET_SERVO needs 4 integer values"));
+      return;
+    }
+    int w = atoi(ws);
+    int e = atoi(es);
+    int b = atoi(bs);
+    int s = atoi(ss);
 
     targetDeg[J_WRIST] = clampJoint(J_WRIST, w);
     targetDeg[J_ELBOW] = clampJoint(J_ELBOW, e);
@@ -367,6 +390,7 @@ static void handleLine(char* line) {
 void setup() {
   Serial.begin(BAUD_RATE);
   delay(200);
+  bootMs = millis();
 
   Wire.begin();
 
@@ -376,13 +400,9 @@ void setup() {
     currentDeg[j] = kNeutralDeg[j];
   }
 
-  if (tryInitPca9685()) {
-    applyTargetsNow();
-    Serial.println(F("OK PCA9685 ready; neutral applied"));
-  } else {
-    Serial.println(F("WARN PCA9685 not ready at boot; will retry automatically"));
-    Serial.println(F("Hint: check servo PSU sequencing, then wait ~0.5s"));
-  }
+  Serial.println(F("INFO delaying initial PCA init for PSU stabilization"));
+  Serial.print(F("INFO PCA init delay ms="));
+  Serial.println(PCA_BOOT_INIT_DELAY_MS);
 
   Serial.println(F("OK GLaDOS_Arm ready (PCA9685 tick map 0-270 -> PWM_TICK_MIN/MAX)"));
   printHelp();
@@ -393,12 +413,26 @@ void loop() {
   static size_t lineLen = 0;
 
   unsigned long now = millis();
-  if (!pcaReady && (now - lastPcaRetryMs >= PCA_RETRY_MS)) {
-    lastPcaRetryMs = now;
-    if (tryInitPca9685()) {
-      applyTargetsNow();
-      Serial.println(F("OK PCA9685 online; neutral applied"));
-      if (debugEnabled) printStatus();
+  if (!pcaReady) {
+    if (now - bootMs >= PCA_BOOT_INIT_DELAY_MS && (now - lastPcaRetryMs >= PCA_RETRY_MS)) {
+      lastPcaRetryMs = now;
+      if (tryInitPca9685()) {
+        applyTargetsNow();
+        Serial.println(F("OK PCA9685 online; neutral applied"));
+        if (debugEnabled) printStatus();
+      }
+    }
+  } else {
+    if (i2cProbe(PCA9685_I2C_ADDR) != 0) {
+      pcaReady = false;
+      Serial.println(F("WARN PCA9685 dropped off I2C; retrying init"));
+    } else {
+      const bool startupWindow = (now - pcaOnlineSinceMs) < PCA_STARTUP_STABILIZE_MS;
+      const unsigned long refreshMs = startupWindow ? PCA_STARTUP_REFRESH_MS : PCA_KEEPALIVE_MS;
+      if (lastPcaKeepaliveMs == 0 || now - lastPcaKeepaliveMs >= refreshMs) {
+        lastPcaKeepaliveMs = now;
+        refreshPcaOutputs();
+      }
     }
   }
 

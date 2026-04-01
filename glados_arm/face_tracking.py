@@ -87,6 +87,23 @@ def _step_toward(cur: float, target: float, max_step: float) -> float:
     return cur + max_step if d > 0 else cur - max_step
 
 
+def _base_yaw_limit_rad() -> float:
+    """
+    Compute a safe yaw limit that cannot request base servo values outside hardware limits.
+    Final limit = min(configured vision cap, physically reachable from neutral by mapping).
+    """
+    cfg_lim_deg = abs(float(getattr(vision_config, "BASE_YAW_MAX_DEG", 90.0)))
+    scale = abs(float(getattr(config, "BASE_RAD_TO_SERVO_DEG", 180.0 / math.pi)))
+    if scale <= 1e-9:
+        return math.radians(cfg_lim_deg)
+
+    pos_deg = (float(config.SERVO_BASE_MAX) - float(config.NEUTRAL_BASE)) / scale
+    neg_deg = (float(config.NEUTRAL_BASE) - float(config.SERVO_BASE_MIN)) / scale
+    phys_deg = max(0.0, min(pos_deg, neg_deg))
+    lim_deg = min(cfg_lim_deg, phys_deg)
+    return math.radians(lim_deg)
+
+
 def resolve_preview_mode(explicit_preview: bool, explicit_no_preview: bool) -> bool:
     """
     Whether to call cv2.imshow. Default: on when DISPLAY is set (local Pi desktop).
@@ -175,6 +192,7 @@ def run_tracking(
     base_yaw_rad = 0.0
     ik_status = "init"
     ik_clip_notes: list[str] = []
+    base_yaw_lim = _base_yaw_limit_rad()
 
     ctl = (control_mode or getattr(vc, "CONTROL_MODE", "ik")).strip().lower()
     if ctl not in ("ik", "proportional"):
@@ -352,7 +370,6 @@ def run_tracking(
                         float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08)),
                     )
                     base_yaw_rad += base_step
-                    base_yaw_lim = math.radians(float(getattr(vc, "BASE_YAW_MAX_DEG", 90.0)))
                     base_yaw_rad = _clamp(base_yaw_rad, -base_yaw_lim, base_yaw_lim)
 
                     y_for_z = corr_y_ctrl + float(getattr(vc, "SIGN_ERROR_X_TO_Z", 1.0)) * float(
@@ -389,8 +406,12 @@ def run_tracking(
                         q_wrist_rad=0.0,
                         prefer=str(getattr(vc, "IK_PREFER", "elbow_up")),
                     )
-                    ik_status = solved.message
-                    ik_clip_notes = solved.clip_notes
+                    filtered_notes = [n for n in solved.clip_notes if not n.startswith("clipped_base_")]
+                    if solved.ik.ok:
+                        ik_status = "ok" if not filtered_notes else "servo_limits_clipped:" + ",".join(filtered_notes)
+                    else:
+                        ik_status = solved.message
+                    ik_clip_notes = filtered_notes
                     # Anti-windup: if vertical chain hits shoulder minimum, stop integrating z further
                     # in the same "upward" direction for this frame.
                     if "clipped_shoulder_min" in solved.clip_notes and z_step > 0:
@@ -399,7 +420,8 @@ def run_tracking(
                             float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)),
                             min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm),
                         )
-                    if solved.ok:
+                    vertical_ok = len(filtered_notes) == 0
+                    if vertical_ok and solved.ik.ok:
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
                             elbow=solved.servo_clamped.elbow,

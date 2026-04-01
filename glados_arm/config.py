@@ -64,7 +64,7 @@ WRIST_RAD_TO_SERVO_DEG = 180.0 / math.pi
 # At *neutral* model offsets (q_shoulder=q_elbow=0), the kinematics frame uses these
 # absolute link angles (shoulder link from +x, elbow as interior bend).
 # **Calibrate** so FK matches a physical measurement at neutral.
-THETA1_REF_NEUTRAL_RAD = 0.0  # upper arm angle from +x in vertical plane
+THETA1_REF_NEUTRAL_RAD = 0.2  # tuned from 0.0 to reduce shoulder-min clipping with current mapping
 THETA2_REF_NEUTRAL_RAD = 0.0  # elbow bend: angle from upper arm to lower arm
 
 # Optional: include wrist as constant extra rotation at tip for FK (rad); v1 default 0.

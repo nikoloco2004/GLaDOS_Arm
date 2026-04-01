@@ -351,13 +351,17 @@ def run_tracking(
 
                     corr_x_ctrl = corr_x_norm * x_ramp
                     corr_y_ctrl = corr_y_norm * y_ramp
-                wrist_trim_deg = int(
-                    round(
-                        float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
-                        * corr_y_ctrl
-                        * float(getattr(vc, "TRACK_WRIST_DEG_PER_NORM", 0.8))
-                    )
+                wrist_cmd = (
+                    float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
+                    * corr_y_ctrl
+                    * float(getattr(vc, "TRACK_WRIST_DEG_PER_NORM", 0.8))
                 )
+                wrist_trim_deg = int(round(wrist_cmd))
+                wrist_min_step = max(0, int(getattr(vc, "TRACK_WRIST_MIN_STEP_DEG", 0)))
+                if wrist_trim_deg == 0 and abs(corr_y_ctrl) > 1e-6 and wrist_min_step > 0:
+                    wrist_trim_deg = wrist_min_step if wrist_cmd > 0.0 else -wrist_min_step
+                wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
+                wrist_trim_deg = max(-wrist_max_trim, min(wrist_max_trim, wrist_trim_deg))
 
                 if ctl == "ik":
                     base_step = (

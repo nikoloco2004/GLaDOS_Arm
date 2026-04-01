@@ -54,7 +54,7 @@ FACE_CENTER_ALPHA = 0.35
 # Minimal wrist participation for vertical correction in IK mode (degrees/frame per normalized error).
 # Keep small so shoulder+elbow do most of the work.
 TRACK_WRIST_DEG_PER_NORM = 0.8
-SIGN_ERROR_Y_WRIST = 1.0
+SIGN_ERROR_Y_WRIST = -1.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
 TRACK_DEADBAND = 0.03
@@ -80,8 +80,8 @@ TRACK_GAIN_ELBOW_DEG = 1.2
 # Sign flips if your mount/camera orientation reverses left/right or up/down
 # Tuned for your current mechanical/camera installation:
 SIGN_ERROR_X_BASE = -1.0   # -1: face right -> rotate base to bring target back toward center
-SIGN_ERROR_Y_SHOULDER = 1.0
-SIGN_ERROR_Y_ELBOW = -1.0  # elbow often inverted vs shoulder for same image-up cue
+SIGN_ERROR_Y_SHOULDER = -1.0
+SIGN_ERROR_Y_ELBOW = 1.0  # keep opposite to shoulder so chain bends in same physical vertical direction
 
 # Haar detector (fast; for better accuracy consider YuNet / DNN later)
 HAAR_SCALE_FACTOR = 1.15

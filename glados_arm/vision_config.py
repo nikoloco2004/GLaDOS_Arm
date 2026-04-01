@@ -57,10 +57,10 @@ FACE_CENTER_ALPHA = 0.35
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
-TRACK_WRIST_DEG_PER_NORM = 18.0
-TRACK_WRIST_MIN_STEP_DEG = 2
+TRACK_WRIST_DEG_PER_NORM = 26.0
+TRACK_WRIST_MIN_STEP_DEG = 3
 TRACK_WRIST_MAX_TRIM_DEG = 35
-SIGN_ERROR_Y_WRIST = -1.0
+SIGN_ERROR_Y_WRIST = 1.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
 TRACK_DEADBAND = 0.03

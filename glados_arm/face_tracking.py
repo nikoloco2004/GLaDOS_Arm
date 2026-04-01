@@ -497,6 +497,13 @@ def run_tracking(
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
+        if use_serial and arm:
+            # Return to safe/known pose on shutdown.
+            try:
+                controller.neutral()
+                time.sleep(0.25)
+            except Exception as e:
+                print(f"Neutral-on-exit failed: {e}", file=sys.stderr)
         picam2.stop()
         if preview:
             try:

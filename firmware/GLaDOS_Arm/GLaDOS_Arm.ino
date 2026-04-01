@@ -69,11 +69,13 @@ constexpr unsigned int SERVO_HZ = 50;
 constexpr float DEFAULT_SLEW_DEG_PER_SEC = 360.0f;
 constexpr unsigned long PCA_RETRY_MS = 500;
 constexpr unsigned long PCA_BOOT_INIT_DELAY_MS = 1500;
-constexpr unsigned long PCA_STARTUP_STABILIZE_MS = 8000;
-constexpr unsigned long PCA_STARTUP_REFRESH_MS = 250;
-constexpr unsigned long PCA_KEEPALIVE_MS = 2000;
-constexpr unsigned long PCA_REASSERT_INTERVAL_MS = 50;
-constexpr uint8_t PCA_REASSERT_CYCLES = 30;
+// Startup hardening: keep first seconds gentle to reduce inrush/current spikes.
+constexpr unsigned long PCA_STARTUP_STABILIZE_MS = 2000;
+constexpr unsigned long PCA_STARTUP_REFRESH_MS = 800;
+constexpr unsigned long PCA_KEEPALIVE_MS = 3000;
+constexpr unsigned long PCA_REASSERT_INTERVAL_MS = 80;
+constexpr uint8_t PCA_REASSERT_CYCLES = 6;
+constexpr unsigned long STARTUP_SERVO_STAGGER_MS = 220;
 
 // ---------------------------------------------------------------------------
 enum JointIndex : uint8_t {
@@ -94,6 +96,9 @@ const int kMaxDeg[NUM_JOINTS] = {
 
 const int kNeutralDeg[NUM_JOINTS] = {
   NEUTRAL_WRIST, NEUTRAL_ELBOW, NEUTRAL_BASE, NEUTRAL_SHOULDER};
+
+// Safer startup pose (not near end-stops). Boot enters this first; NEUTRAL can be commanded later.
+const int kStartupDeg[NUM_JOINTS] = {90, 180, 90, 45};
 
 int currentDeg[NUM_JOINTS];
 int targetDeg[NUM_JOINTS];
@@ -145,6 +150,13 @@ static void writeJoint(JointIndex j, int deg) {
 static void applyTargetsNow() {
   for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
     writeJoint(static_cast<JointIndex>(j), targetDeg[j]);
+  }
+}
+
+static void applyTargetsStaggered(unsigned long stepDelayMs) {
+  for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
+    writeJoint(static_cast<JointIndex>(j), targetDeg[j]);
+    if (stepDelayMs > 0 && j + 1 < NUM_JOINTS) delay(stepDelayMs);
   }
 }
 
@@ -394,10 +406,10 @@ void setup() {
 
   Wire.begin();
 
-  // Start with neutral targets even if hardware is not yet online.
+  // Start with safer (non-end-stop) boot targets even if hardware is not yet online.
   for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
-    targetDeg[j] = kNeutralDeg[j];
-    currentDeg[j] = kNeutralDeg[j];
+    targetDeg[j] = kStartupDeg[j];
+    currentDeg[j] = kStartupDeg[j];
   }
 
   Serial.println(F("INFO delaying initial PCA init for PSU stabilization"));
@@ -417,8 +429,9 @@ void loop() {
     if (now - bootMs >= PCA_BOOT_INIT_DELAY_MS && (now - lastPcaRetryMs >= PCA_RETRY_MS)) {
       lastPcaRetryMs = now;
       if (tryInitPca9685()) {
-        applyTargetsNow();
-        Serial.println(F("OK PCA9685 online; neutral applied"));
+        applyTargetsStaggered(STARTUP_SERVO_STAGGER_MS);
+        Serial.println(F("OK PCA9685 online; safe startup pose applied"));
+        Serial.println(F("INFO use NEUTRAL command after boot if you want calibrated neutral pose"));
         if (debugEnabled) printStatus();
       }
     }

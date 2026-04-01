@@ -121,24 +121,24 @@ def run_tracking(
         return 1
 
     picam2 = Picamera2()
-    # BGR888 matches OpenCV (imshow expects BGR); avoids blue/orange skin tone swap.
-    capture_bgr888 = True
-    try:
-        cfg = picam2.create_preview_configuration(
-            main={"size": (width, height), "format": "BGR888"},
-        )
-        picam2.configure(cfg)
-    except Exception:
-        cfg = picam2.create_preview_configuration(
-            main={"size": (width, height), "format": "RGB888"},
-        )
-        picam2.configure(cfg)
-        capture_bgr888 = False
-        print(
-            "Note: using RGB888 fallback; converting to BGR for OpenCV display/detection.",
-            flush=True,
-        )
+    # Force RGB888 then explicitly convert RGB->BGR for OpenCV.
+    # This avoids inconsistent color interpretation across Pi/OpenCV builds.
+    cfg = picam2.create_preview_configuration(
+        main={"size": (width, height), "format": "RGB888"},
+        controls={"FrameRate": float(getattr(vc, "CAMERA_FPS", 30))},
+    )
+    picam2.configure(cfg)
     picam2.start()
+
+    # Request full sensor crop when available (reduces "zoomed-in" look).
+    try:
+        max_crop = picam2.camera_properties.get("ScalerCropMaximum")
+        if max_crop is not None:
+            picam2.set_controls({"ScalerCrop": max_crop})
+            print(f"ScalerCrop set to full sensor: {max_crop}", flush=True)
+    except Exception:
+        pass
+
     time.sleep(0.2)
 
     arm = ArmSerial(port=port) if use_serial else None
@@ -191,10 +191,7 @@ def run_tracking(
             raw = picam2.capture_array("main")
             if raw is None or raw.size == 0:
                 continue
-            if capture_bgr888:
-                frame_bgr = raw
-            else:
-                frame_bgr = cv2.cvtColor(raw, cv2.COLOR_RGB2BGR)
+            frame_bgr = cv2.cvtColor(raw, cv2.COLOR_RGB2BGR)
 
             h, w = frame_bgr.shape[:2]
             # Optional downscale for Haar (faster); map boxes back to full resolution for control + preview.

@@ -9,7 +9,7 @@ from __future__ import annotations
 # Capture size — **larger = wider field of view** on Pi Camera (small sizes often crop / “zoom”).
 # Tune down if FPS is too low on older Pi models.
 CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 720
+CAMERA_HEIGHT = 960
 
 # Optional cap on frame rate (Picamera2 controls); None = library default
 CAMERA_FPS = 30

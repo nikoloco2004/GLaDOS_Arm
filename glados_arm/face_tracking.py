@@ -445,7 +445,11 @@ def run_tracking(
                             if abs(dist_err_px) < dist_db:
                                 dist_err_px = 0.0
                             dist_err_px = _clamp(dist_err_px, -dist_err_limit, dist_err_limit)
-                            dist_step_mm = _clamp(dist_err_px * dist_mm_per_px, -dist_max_step, dist_max_step)
+                            dist_step_mm = _clamp(
+                                float(getattr(vc, "DIST_SIGN_X", 1.0)) * dist_err_px * dist_mm_per_px,
+                                -dist_max_step,
+                                dist_max_step,
+                            )
                             # Smaller face (farther) => positive dist_err => increase x target (reach out).
                             target_x_mm += dist_step_mm
 

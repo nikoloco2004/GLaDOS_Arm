@@ -30,7 +30,7 @@ CONTROL_MODE = "ik"
 
 # IK live-target tuning (used when CONTROL_MODE == "ik")
 # Image X correction (normalized) -> base yaw delta (rad/frame)
-TRACK_BASE_RAD_PER_NORM = 0.30
+TRACK_BASE_RAD_PER_NORM = 0.45
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
 TRACK_Z_MM_PER_NORM = 12.0
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
@@ -49,19 +49,19 @@ TARGET_X_MAX_MM = 230.0
 TARGET_Z_MIN_MM = 0.0
 TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
-BASE_YAW_MAX_DEG = 90.0
-MAX_BASE_YAW_STEP_RAD = 0.14
+BASE_YAW_MAX_DEG = 120.0
+MAX_BASE_YAW_STEP_RAD = 0.22
 MAX_Z_STEP_MM = 10.0
 MAX_X_STEP_MM = 3.0
-FACE_CENTER_ALPHA = 0.45
+FACE_CENTER_ALPHA = 0.60
 
 # Wrist participation for vertical correction in IK mode (degrees/frame per normalized error).
 # Increased so wrist contributes clearly to Y tracking.
-TRACK_WRIST_DEG_PER_NORM = 5.0
+TRACK_WRIST_DEG_PER_NORM = 10.0
 SIGN_ERROR_Y_WRIST = -1.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
-TRACK_DEADBAND = 0.02
+TRACK_DEADBAND = 0.01
 
 # Adaptive ramping:
 # Start with gentle correction, then ramp up if target stays outside center for multiple frames.
@@ -71,7 +71,7 @@ RAMP_START_ERROR = 0.10      # normalized error before ramp starts to build
 RAMP_UP_PER_FRAME = 0.16     # how quickly gain ramps up while off-center
 RAMP_DOWN_PER_FRAME = 0.20   # how quickly gain falls back near center
 RAMP_MIN = 1.0               # initial correction multiplier
-RAMP_MAX = 3.0               # max boosted multiplier
+RAMP_MAX = 3.5               # max boosted multiplier
 
 # Degrees added per frame per unit normalized error (after deadband). Tune on hardware.
 # Horizontal: positive error_x = face to the right of frame center → increase base if SIGN_BASE matches.

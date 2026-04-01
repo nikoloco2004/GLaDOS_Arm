@@ -37,7 +37,7 @@ TRACK_Z_MM_PER_NORM = 12.0
 TRACK_X_MM_PER_NORM = 0.0
 # Cross-axis coupling: x correction can influence vertical z correction (camera/geometry coupling).
 # effective_y_for_z = y + SIGN_ERROR_X_TO_Z * TRACK_Z_FROM_X_MIX * x
-TRACK_Z_FROM_X_MIX = 0.25
+TRACK_Z_FROM_X_MIX = 0.10
 SIGN_ERROR_X_TO_Z = 1.0
 IK_PREFER = "elbow_up"
 IK_HOLD_LAST_ON_FAIL = True
@@ -47,7 +47,7 @@ IK_ACCEPT_CLAMPED = True
 TARGET_X_MIN_MM = 100.0
 TARGET_X_MAX_MM = 230.0
 TARGET_Z_MIN_MM = 0.0
-TARGET_Z_MAX_MM = 190.0
+TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 90.0
 MAX_BASE_YAW_STEP_RAD = 0.08

@@ -391,6 +391,14 @@ def run_tracking(
                     )
                     ik_status = solved.message
                     ik_clip_notes = solved.clip_notes
+                    # Anti-windup: if vertical chain hits shoulder minimum, stop integrating z further
+                    # in the same "upward" direction for this frame.
+                    if "clipped_shoulder_min" in solved.clip_notes and z_step > 0:
+                        target_z_mm -= z_step
+                        target_z_mm = max(
+                            float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)),
+                            min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm),
+                        )
                     if solved.ok:
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,

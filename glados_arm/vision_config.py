@@ -74,6 +74,11 @@ DIST_SIGN_X = -1.0
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
 TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 0.0
 TRACK_SHOULDER_ASSIST_MAX_DEG = 0
+# Distance-driven shoulder assist (independent of Y).
+DIST_SHOULDER_ASSIST_ENABLE = True
+DIST_SHOULDER_DEG_PER_PX = 0.10
+DIST_SHOULDER_MAX_DEG = 28
+DIST_SIGN_SHOULDER = 1.0
 # Elbow assist in IK mode for vertical compensation.
 TRACK_ELBOW_ASSIST_DEG_PER_NORM = 22.0
 TRACK_ELBOW_ASSIST_MAX_DEG = 35

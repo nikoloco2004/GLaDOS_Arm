@@ -121,10 +121,23 @@ def run_tracking(
         return 1
 
     picam2 = Picamera2()
-    cfg = picam2.create_preview_configuration(
-        main={"size": (width, height), "format": "RGB888"},
-    )
-    picam2.configure(cfg)
+    # BGR888 matches OpenCV (imshow expects BGR); avoids blue/orange skin tone swap.
+    capture_bgr888 = True
+    try:
+        cfg = picam2.create_preview_configuration(
+            main={"size": (width, height), "format": "BGR888"},
+        )
+        picam2.configure(cfg)
+    except Exception:
+        cfg = picam2.create_preview_configuration(
+            main={"size": (width, height), "format": "RGB888"},
+        )
+        picam2.configure(cfg)
+        capture_bgr888 = False
+        print(
+            "Note: using RGB888 fallback; converting to BGR for OpenCV display/detection.",
+            flush=True,
+        )
     picam2.start()
     time.sleep(0.2)
 
@@ -171,22 +184,45 @@ def run_tracking(
             )
             preview = False
 
+    det_max_w = getattr(vc, "DETECT_MAX_WIDTH", 640)
+
     try:
         while True:
-            frame_rgb = picam2.capture_array("main")
-            if frame_rgb is None or frame_rgb.size == 0:
+            raw = picam2.capture_array("main")
+            if raw is None or raw.size == 0:
                 continue
+            if capture_bgr888:
+                frame_bgr = raw
+            else:
+                frame_bgr = cv2.cvtColor(raw, cv2.COLOR_RGB2BGR)
 
-            gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
-            gray = cv2.equalizeHist(gray)
+            h, w = frame_bgr.shape[:2]
+            # Optional downscale for Haar (faster); map boxes back to full resolution for control + preview.
+            if w > det_max_w:
+                sf = det_max_w / float(w)  # shrink factor full → small
+                small_w = det_max_w
+                small_h = max(1, int(round(h * sf)))
+                gray_small = cv2.cvtColor(
+                    cv2.resize(frame_bgr, (small_w, small_h), interpolation=cv2.INTER_AREA),
+                    cv2.COLOR_BGR2GRAY,
+                )
+                inv_scale = 1.0 / sf
+                min_face = (
+                    max(1, int(round(vc.HAAR_MIN_SIZE[0] * sf))),
+                    max(1, int(round(vc.HAAR_MIN_SIZE[1] * sf))),
+                )
+            else:
+                gray_small = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+                inv_scale = 1.0
+                min_face = vc.HAAR_MIN_SIZE
+
+            gray_small = cv2.equalizeHist(gray_small)
             faces = face_cascade.detectMultiScale(
-                gray,
+                gray_small,
                 scaleFactor=vc.HAAR_SCALE_FACTOR,
                 minNeighbors=vc.HAAR_MIN_NEIGHBORS,
-                minSize=vc.HAAR_MIN_SIZE,
+                minSize=min_face,
             )
-
-            h, w = gray.shape[:2]
             cx_img = w * 0.5
             cy_img = h * 0.5
 
@@ -194,6 +230,10 @@ def run_tracking(
                 areas = [fw * fh for (_x, _y, fw, fh) in faces]
                 i = int(np.argmax(areas))
                 x, y, fw, fh = faces[i]
+                x = int(round(x * inv_scale))
+                y = int(round(y * inv_scale))
+                fw = int(round(fw * inv_scale))
+                fh = int(round(fh * inv_scale))
                 cx = x + fw * 0.5
                 cy = y + fh * 0.5
 
@@ -226,7 +266,7 @@ def run_tracking(
                     controller.send_servo(cmd)
 
                 if preview:
-                    vis = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                    vis = frame_bgr.copy()
                     cv2.rectangle(vis, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
                     cv2.circle(vis, (int(cx), int(cy)), 5, (0, 0, 255), -1)
                     cv2.putText(
@@ -243,7 +283,7 @@ def run_tracking(
                         break
             else:
                 if preview:
-                    vis = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                    vis = frame_bgr.copy()
                     cv2.putText(
                         vis,
                         "no face",

@@ -94,8 +94,8 @@ python -m glados_arm.face_tracking --no-serial
 # Full: send SET_SERVO to Arduino on /dev/ttyACM0
 python -m glados_arm.main track --port /dev/ttyACM0
 
-# Smaller resolution for FPS (also edit vision_config.py)
-python -m glados_arm.main track --port /dev/ttyACM0 --width 320 --height 240
+# Narrower FOV / faster: lower resolution (defaults in vision_config.py are 1280x720 for wide view)
+python -m glados_arm.main track --port /dev/ttyACM0 --width 640 --height 480
 
 # Preview: ON automatically when DISPLAY is set (Pi desktop terminal). Force: --preview ; headless: --no-preview
 python -m glados_arm.main track --preview

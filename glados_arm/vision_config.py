@@ -72,8 +72,8 @@ DIST_ENABLE_AFTER_LOCK = True
 DIST_SIGN_X = -1.0
 # Optional distance->z coupling so shoulder participates from range changes.
 DIST_SIGN_Z = 1.0
-DIST_Z_MM_PER_PX = 0.30
-DIST_Z_MAX_STEP_MM = 4.0
+DIST_Z_MM_PER_PX = 0.90
+DIST_Z_MAX_STEP_MM = 10.0
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
 TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 0.0

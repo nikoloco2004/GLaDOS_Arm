@@ -55,9 +55,9 @@ MAX_Z_STEP_MM = 10.0
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.35
 
-# Minimal wrist participation for vertical correction in IK mode (degrees/frame per normalized error).
-# Keep small so shoulder+elbow do most of the work.
-TRACK_WRIST_DEG_PER_NORM = 0.8
+# Wrist participation for vertical correction in IK mode (degrees/frame per normalized error).
+# Increased so wrist contributes clearly to Y tracking.
+TRACK_WRIST_DEG_PER_NORM = 3.0
 SIGN_ERROR_Y_WRIST = -1.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band

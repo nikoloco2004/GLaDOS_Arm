@@ -67,6 +67,7 @@ constexpr size_t SERIAL_LINE_MAX = 128;
 
 constexpr unsigned int SERVO_HZ = 50;
 constexpr float DEFAULT_SLEW_DEG_PER_SEC = 360.0f;
+constexpr unsigned long PCA_RETRY_MS = 500;
 
 // ---------------------------------------------------------------------------
 enum JointIndex : uint8_t {
@@ -95,6 +96,8 @@ float slewDegPerSec = DEFAULT_SLEW_DEG_PER_SEC;
 bool debugEnabled = false;
 unsigned long lastServoMs = 0;
 unsigned long lastLoopMs = 0;
+unsigned long lastPcaRetryMs = 0;
+bool pcaReady = false;
 
 // ---------------------------------------------------------------------------
 static int clampJoint(JointIndex j, int v) {
@@ -116,6 +119,7 @@ static uint16_t angleToPwmTicks(int deg) {
 }
 
 static void setChannelPwmTicks(uint8_t pcaChannel, uint16_t ticks) {
+  if (!pcaReady) return;
   if (ticks > 4095U) ticks = 4095U;
   pwm.setPWM(pcaChannel, 0, ticks);
 }
@@ -169,6 +173,8 @@ static void printStatus() {
   Serial.print(currentDeg[J_SHOULDER]);
   Serial.print(F(" slew_dps="));
   Serial.print(slewDegPerSec, 1);
+  Serial.print(F(" pca_ready="));
+  Serial.print(pcaReady ? F("1") : F("0"));
   Serial.println();
 }
 
@@ -188,6 +194,17 @@ static void printHelp() {
 static uint8_t i2cProbe(uint8_t addr) {
   Wire.beginTransmission(addr);
   return Wire.endTransmission();
+}
+
+static bool tryInitPca9685() {
+  if (i2cProbe(PCA9685_I2C_ADDR) != 0) {
+    return false;
+  }
+  pwm.begin();
+  pwm.setPWMFreq(SERVO_FREQ_HZ);
+  delay(10);
+  pcaReady = true;
+  return true;
 }
 
 static void printI2cScan() {
@@ -221,8 +238,15 @@ static void handleLine(char* line) {
     return;
   }
   if (strcmp(cmd, "NEUTRAL") == 0) {
-    applyNeutral();
-    Serial.println(F("OK NEUTRAL"));
+    for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
+      targetDeg[j] = kNeutralDeg[j];
+    }
+    if (pcaReady) {
+      applyNeutral();
+      Serial.println(F("OK NEUTRAL"));
+    } else {
+      Serial.println(F("OK NEUTRAL queued (PCA not ready)"));
+    }
     if (debugEnabled) printStatus();
     return;
   }
@@ -256,6 +280,10 @@ static void handleLine(char* line) {
     return;
   }
   if (strcmp(cmd, "SET_PWM") == 0) {
+    if (!pcaReady) {
+      Serial.println(F("ERR PCA9685 not ready"));
+      return;
+    }
     char* chs = strtok(nullptr, " \t\r\n");
     char* ts = strtok(nullptr, " \t\r\n");
     if (!chs || !ts) {
@@ -287,13 +315,17 @@ static void handleLine(char* line) {
     targetDeg[J_BASE] = clampJoint(J_BASE, b);
     targetDeg[J_SHOULDER] = clampJoint(J_SHOULDER, s);
 
-    if (slewDegPerSec <= 0.0f) {
-      for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
-        writeJoint(static_cast<JointIndex>(j), targetDeg[j]);
-      }
-      Serial.println(F("OK SET_SERVO"));
+    if (!pcaReady) {
+      Serial.println(F("OK SET_SERVO queued (PCA not ready)"));
     } else {
-      Serial.println(F("OK SET_SERVO (slewing)"));
+      if (slewDegPerSec <= 0.0f) {
+        for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
+          writeJoint(static_cast<JointIndex>(j), targetDeg[j]);
+        }
+        Serial.println(F("OK SET_SERVO"));
+      } else {
+        Serial.println(F("OK SET_SERVO (slewing)"));
+      }
     }
     if (debugEnabled) printStatus();
     return;
@@ -310,16 +342,19 @@ void setup() {
 
   Wire.begin();
 
-  if (i2cProbe(PCA9685_I2C_ADDR) != 0) {
-    Serial.println(F("ERR PCA9685 not found at I2C address — check wiring, power, A0-A5"));
-    Serial.println(F("Hint: I2C_SCAN"));
+  // Start with neutral targets even if hardware is not yet online.
+  for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
+    targetDeg[j] = kNeutralDeg[j];
+    currentDeg[j] = kNeutralDeg[j];
   }
 
-  pwm.begin();
-  pwm.setPWMFreq(SERVO_FREQ_HZ);
-  delay(10);
-
-  applyNeutral();
+  if (tryInitPca9685()) {
+    applyNeutral();
+    Serial.println(F("OK PCA9685 ready; neutral applied"));
+  } else {
+    Serial.println(F("WARN PCA9685 not ready at boot; will retry automatically"));
+    Serial.println(F("Hint: check servo PSU sequencing, then wait ~0.5s"));
+  }
 
   Serial.println(F("OK GLaDOS_Arm ready (PCA9685 tick map 0-270 -> PWM_TICK_MIN/MAX)"));
   printHelp();
@@ -330,9 +365,18 @@ void loop() {
   static size_t lineLen = 0;
 
   unsigned long now = millis();
+  if (!pcaReady && (now - lastPcaRetryMs >= PCA_RETRY_MS)) {
+    lastPcaRetryMs = now;
+    if (tryInitPca9685()) {
+      applyNeutral();
+      Serial.println(F("OK PCA9685 online; neutral applied"));
+      if (debugEnabled) printStatus();
+    }
+  }
+
   if (now - lastServoMs >= 1000UL / SERVO_HZ) {
     lastServoMs = now;
-    if (slewDegPerSec > 0.0f) {
+    if (pcaReady && slewDegPerSec > 0.0f) {
       updateSlew();
     }
   }

@@ -23,6 +23,27 @@ DETECT_EVERY_N_FRAMES = 2
 # On your stack face looked blue with RGB->BGR conversion, so default to BGR.
 COLOR_MODE = "bgr"
 
+# Control strategy for live tracking.
+# - "ik": update base yaw + vertical target and solve IK every frame
+# - "proportional": direct neutral+delta servo commands (legacy mode)
+CONTROL_MODE = "ik"
+
+# IK live-target tuning (used when CONTROL_MODE == "ik")
+# Image X correction (normalized) -> base yaw delta (rad/frame)
+TRACK_BASE_RAD_PER_NORM = 0.04
+# Image Y correction (normalized) -> vertical target z delta (mm/frame)
+TRACK_Z_MM_PER_NORM = 10.0
+# Optional horizontal plane x target adjustment from image error (usually keep 0)
+TRACK_X_MM_PER_NORM = 0.0
+IK_PREFER = "elbow_up"
+IK_HOLD_LAST_ON_FAIL = True
+
+# Keep IK target inside practical workspace envelope.
+TARGET_X_MIN_MM = 100.0
+TARGET_X_MAX_MM = 230.0
+TARGET_Z_MIN_MM = 0.0
+TARGET_Z_MAX_MM = 170.0
+
 # Normalized error deadband (0..1) — ignore jitter inside this band
 TRACK_DEADBAND = 0.06
 

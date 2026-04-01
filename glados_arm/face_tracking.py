@@ -1,5 +1,5 @@
 """
-Face tracking with **Picamera2** (libcamera) + OpenCV Haar cascade → proportional arm commands.
+Face tracking with **Picamera2** (libcamera) + OpenCV Haar cascade.
 
 Requires Raspberry Pi OS with working ``rpicam-hello`` / Picamera2 stack.
 
@@ -7,8 +7,9 @@ Architecture (matches your arm model):
   * Image X error → **base** (horizontal)
   * Image Y error → **shoulder + elbow** (vertical chain); wrist held at neutral
 
-This is **proportional image-space control** with clamped servo commands, not full IK per frame.
-Replace with calibrated angular mapping / IK when ready.
+Supports:
+  * IK target loop (default): image X -> base yaw, image Y -> vertical target (x,z) -> IK
+  * Proportional legacy mode: direct neutral+delta servo commands
 """
 
 from __future__ import annotations
@@ -21,8 +22,8 @@ import time
 import cv2
 import numpy as np
 
-from . import config, vision_config
-from .controller import RobotController
+from . import config, kinematics, vision_config
+from .controller import RobotController, solve_vertical_plane
 from .mapping import ServoCommand, clamp_servo
 from .serial_comm import ArmSerial
 
@@ -97,6 +98,7 @@ def run_tracking(
     width: int,
     height: int,
     color_mode: str | None = None,
+    control_mode: str | None = None,
 ) -> int:
     try:
         from picamera2 import Picamera2  # type: ignore[import-untyped]
@@ -152,12 +154,26 @@ def run_tracking(
         controller.neutral()
 
     cmd = _neutral_command()
+    last_valid_cmd = cmd
+
+    # IK state (default control path)
+    fk0 = kinematics.forward_kinematics(0.0, 0.0)
+    target_x_mm = fk0.tip.x
+    target_z_mm = fk0.tip.z
+    base_yaw_rad = 0.0
+    ik_status = "init"
+    ik_clip_notes: list[str] = []
+
+    ctl = (control_mode or getattr(vc, "CONTROL_MODE", "ik")).strip().lower()
+    if ctl not in ("ik", "proportional"):
+        print(f"Invalid control mode '{ctl}', using 'ik'.", flush=True)
+        ctl = "ik"
     mode = (color_mode or getattr(vc, "COLOR_MODE", "bgr")).strip().lower()
     if mode not in ("bgr", "rgb"):
         print(f"Invalid color mode '{mode}', using 'bgr'.", flush=True)
         mode = "bgr"
     detect_every = max(1, int(getattr(vc, "DETECT_EVERY_N_FRAMES", 1)))
-    print(f"Color mode: {mode} | detect_every_n_frames={detect_every}", flush=True)
+    print(f"Color mode: {mode} | detect_every_n_frames={detect_every} | control_mode={ctl}", flush=True)
     print(
         "Tracking: Ctrl+C to stop. Picamera2 + OpenCV; horizontal→base, vertical→shoulder/elbow.",
         flush=True,
@@ -273,24 +289,54 @@ def run_tracking(
                 corr_x_px = corr_x_norm * cx_img
                 corr_y_px = corr_y_norm * cy_img
 
-                d_base = int(
-                    round(vc.SIGN_ERROR_X_BASE * corr_x_norm * vc.TRACK_GAIN_BASE_DEG)
-                )
-                d_sh = int(
-                    round(vc.SIGN_ERROR_Y_SHOULDER * corr_y_norm * vc.TRACK_GAIN_SHOULDER_DEG)
-                )
-                d_el = int(
-                    round(vc.SIGN_ERROR_Y_ELBOW * corr_y_norm * vc.TRACK_GAIN_ELBOW_DEG)
-                )
+                if ctl == "ik":
+                    base_yaw_rad += (
+                        vc.SIGN_ERROR_X_BASE * corr_x_norm * float(getattr(vc, "TRACK_BASE_RAD_PER_NORM", 0.04))
+                    )
+                    target_z_mm += (
+                        vc.SIGN_ERROR_Y_SHOULDER * corr_y_norm * float(getattr(vc, "TRACK_Z_MM_PER_NORM", 10.0))
+                    )
+                    target_x_mm += (
+                        vc.SIGN_ERROR_X_BASE * corr_x_norm * float(getattr(vc, "TRACK_X_MM_PER_NORM", 0.0))
+                    )
 
-                cmd = ServoCommand(
-                    wrist=config.NEUTRAL_WRIST,
-                    elbow=config.NEUTRAL_ELBOW + d_el,
-                    base=config.NEUTRAL_BASE + d_base,
-                    shoulder=config.NEUTRAL_SHOULDER + d_sh,
-                )
-                cl, _notes = clamp_servo(cmd)
-                cmd = cl
+                    target_x_mm = max(float(getattr(vc, "TARGET_X_MIN_MM", 100.0)), min(float(getattr(vc, "TARGET_X_MAX_MM", 230.0)), target_x_mm))
+                    target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 170.0)), target_z_mm))
+
+                    solved = solve_vertical_plane(
+                        x_mm=target_x_mm,
+                        z_mm=target_z_mm,
+                        base_yaw_rad=base_yaw_rad,
+                        q_wrist_rad=0.0,
+                        prefer=str(getattr(vc, "IK_PREFER", "elbow_up")),
+                    )
+                    ik_status = solved.message
+                    ik_clip_notes = solved.clip_notes
+                    if solved.ok:
+                        cmd = solved.servo_clamped
+                        last_valid_cmd = cmd
+                    elif bool(getattr(vc, "IK_HOLD_LAST_ON_FAIL", True)):
+                        cmd = last_valid_cmd
+                    else:
+                        cmd = solved.servo_clamped
+                else:
+                    d_base = int(
+                        round(vc.SIGN_ERROR_X_BASE * corr_x_norm * vc.TRACK_GAIN_BASE_DEG)
+                    )
+                    d_sh = int(
+                        round(vc.SIGN_ERROR_Y_SHOULDER * corr_y_norm * vc.TRACK_GAIN_SHOULDER_DEG)
+                    )
+                    d_el = int(
+                        round(vc.SIGN_ERROR_Y_ELBOW * corr_y_norm * vc.TRACK_GAIN_ELBOW_DEG)
+                    )
+                    cmd = ServoCommand(
+                        wrist=config.NEUTRAL_WRIST,
+                        elbow=config.NEUTRAL_ELBOW + d_el,
+                        base=config.NEUTRAL_BASE + d_base,
+                        shoulder=config.NEUTRAL_SHOULDER + d_sh,
+                    )
+                    cl, _notes = clamp_servo(cmd)
+                    cmd = cl
 
                 if use_serial:
                     controller.send_servo(cmd)
@@ -303,7 +349,7 @@ def run_tracking(
                     cv2.circle(vis, (int(cx), int(cy)), 5, (0, 0, 255), -1)
                     cv2.putText(
                         vis,
-                        f"b={cmd.base} s={cmd.shoulder} e={cmd.elbow}",
+                        f"mode={ctl} b={cmd.base} s={cmd.shoulder} e={cmd.elbow}",
                         (10, 24),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.6,
@@ -328,6 +374,16 @@ def run_tracking(
                         (255, 200, 0),
                         2,
                     )
+                    if ctl == "ik":
+                        cv2.putText(
+                            vis,
+                            f"ik x={target_x_mm:5.1f} z={target_z_mm:5.1f} status={ik_status}",
+                            (10, 96),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (200, 255, 200),
+                            2,
+                        )
                     cv2.imshow("GLaDOS face track", vis)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
@@ -363,6 +419,17 @@ def run_tracking(
                         (255, 200, 0),
                         2,
                     )
+                    if ctl == "ik":
+                        clip_msg = ",".join(ik_clip_notes) if ik_clip_notes else "none"
+                        cv2.putText(
+                            vis,
+                            f"ik x={target_x_mm:5.1f} z={target_z_mm:5.1f} clips={clip_msg}",
+                            (10, 96),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (200, 255, 200),
+                            2,
+                        )
                     cv2.imshow("GLaDOS face track", vis)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
@@ -416,6 +483,12 @@ def main(argv: list[str] | None = None) -> int:
         default=getattr(vision_config, "COLOR_MODE", "bgr"),
         help="Interpret Picamera2 raw frame order before OpenCV: bgr or rgb",
     )
+    p.add_argument(
+        "--control-mode",
+        choices=("ik", "proportional"),
+        default=getattr(vision_config, "CONTROL_MODE", "ik"),
+        help="Tracking control strategy",
+    )
     args = p.parse_args(argv)
     try:
         want_preview = resolve_preview_mode(args.preview, args.no_preview)
@@ -429,6 +502,7 @@ def main(argv: list[str] | None = None) -> int:
         width=args.width,
         height=args.height,
         color_mode=args.color_mode,
+        control_mode=args.control_mode,
     )
 
 

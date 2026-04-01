@@ -157,6 +157,7 @@ def cmd_track(args: argparse.Namespace) -> int:
         width=w,
         height=h,
         color_mode=args.color_mode,
+        control_mode=args.control_mode,
     )
 
 
@@ -317,6 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--preview", action="store_true", help="force OpenCV window")
     tr.add_argument("--no-preview", action="store_true", help="never open window")
     tr.add_argument("--color-mode", choices=("bgr", "rgb"), default=None, help="override camera color order")
+    tr.add_argument("--control-mode", choices=("ik", "proportional"), default=None, help="override tracking control strategy")
     tr.add_argument("--width", type=int, default=None)
     tr.add_argument("--height", type=int, default=None)
     tr.set_defaults(func=cmd_track)

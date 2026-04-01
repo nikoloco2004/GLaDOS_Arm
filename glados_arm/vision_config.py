@@ -35,6 +35,10 @@ TRACK_BASE_RAD_PER_NORM = 0.20
 TRACK_Z_MM_PER_NORM = 12.0
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
+# Cross-axis coupling: x correction can influence vertical z correction (camera/geometry coupling).
+# effective_y_for_z = y + SIGN_ERROR_X_TO_Z * TRACK_Z_FROM_X_MIX * x
+TRACK_Z_FROM_X_MIX = 0.25
+SIGN_ERROR_X_TO_Z = 1.0
 IK_PREFER = "elbow_up"
 IK_HOLD_LAST_ON_FAIL = True
 IK_ACCEPT_CLAMPED = True

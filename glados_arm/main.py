@@ -252,6 +252,75 @@ def cmd_ik_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ik_vertical_test(args: argparse.Namespace) -> int:
+    """
+    Synthetic step-test for IK vertical correction dynamics.
+    Applies fixed normalized x/y correction for N steps and prints target evolution + clip behavior.
+    Useful for tuning TRACK_Z_MM_PER_NORM and TRACK_Z_FROM_X_MIX.
+    """
+    prefer = args.prefer
+    steps = max(1, int(args.steps))
+    corr_x = float(args.corr_x)
+    corr_y = float(args.corr_y)
+    x = float(args.start_x)
+    z = float(args.start_z)
+    yaw = float(args.start_yaw)
+
+    from . import vision_config
+
+    z_mix = float(getattr(vision_config, "TRACK_Z_FROM_X_MIX", 0.0))
+    sign_x_to_z = float(getattr(vision_config, "SIGN_ERROR_X_TO_Z", 1.0))
+    k_base = float(getattr(vision_config, "TRACK_BASE_RAD_PER_NORM", 0.04))
+    k_z = float(getattr(vision_config, "TRACK_Z_MM_PER_NORM", 10.0))
+    k_x = float(getattr(vision_config, "TRACK_X_MM_PER_NORM", 0.0))
+    max_base_step = float(getattr(vision_config, "MAX_BASE_YAW_STEP_RAD", 0.08))
+    max_z_step = float(getattr(vision_config, "MAX_Z_STEP_MM", 10.0))
+    max_x_step = float(getattr(vision_config, "MAX_X_STEP_MM", 3.0))
+    x_min = float(getattr(vision_config, "TARGET_X_MIN_MM", 100.0))
+    x_max = float(getattr(vision_config, "TARGET_X_MAX_MM", 230.0))
+    z_min = float(getattr(vision_config, "TARGET_Z_MIN_MM", 0.0))
+    z_max = float(getattr(vision_config, "TARGET_Z_MAX_MM", 190.0))
+    yaw_lim = math.radians(float(getattr(vision_config, "BASE_YAW_MAX_DEG", 90.0)))
+
+    clips = 0
+    oks = 0
+    print(
+        f"ik-vertical-test steps={steps} corr_x={corr_x:+.3f} corr_y={corr_y:+.3f} "
+        f"start(x,z,yaw)=({x:.1f},{z:.1f},{yaw:+.3f})"
+    )
+    print(f"params k_base={k_base} k_z={k_z} z_mix={z_mix} sign_x_to_z={sign_x_to_z}")
+
+    def _clamp(v: float, lo: float, hi: float) -> float:
+        return lo if v < lo else hi if v > hi else v
+
+    for i in range(steps):
+        base_step = config.BASE_YAW_SIGN * corr_x * k_base
+        base_step = _clamp(base_step, -max_base_step, max_base_step)
+        yaw = _clamp(yaw + base_step, -yaw_lim, yaw_lim)
+
+        y_for_z = _clamp(corr_y + sign_x_to_z * z_mix * corr_x, -1.0, 1.0)
+        z_step = float(getattr(vision_config, "SIGN_ERROR_Y_SHOULDER", 1.0)) * y_for_z * k_z
+        z_step = _clamp(z_step, -max_z_step, max_z_step)
+        z = _clamp(z + z_step, z_min, z_max)
+
+        x_step = config.BASE_YAW_SIGN * corr_x * k_x
+        x_step = _clamp(x_step, -max_x_step, max_x_step)
+        x = _clamp(x + x_step, x_min, x_max)
+
+        r = solve_vertical_plane(x_mm=x, z_mm=z, base_yaw_rad=yaw, q_wrist_rad=0.0, prefer=prefer)
+        if r.ok:
+            oks += 1
+        if r.clip_notes:
+            clips += 1
+        print(
+            f"step={i+1:02d} x={x:6.1f} z={z:6.1f} yaw={yaw:+.3f} "
+            f"ok={r.ok} clips={r.clip_notes} cmd=({r.servo_clamped.base},{r.servo_clamped.shoulder},{r.servo_clamped.elbow},{r.servo_clamped.wrist})"
+        )
+
+    print(f"summary ok_steps={oks}/{steps} clipped_steps={clips}/{steps}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="GLaDOS arm control / kinematics CLI")
     sub = p.add_subparsers(dest="command", required=True)
@@ -334,6 +403,16 @@ def build_parser() -> argparse.ArgumentParser:
     ikb.add_argument("--max-mean-err-mm", type=float, default=None)
     ikb.add_argument("--min-servo-ok-rate", type=float, default=None, help="percent, e.g. 80")
     ikb.set_defaults(func=cmd_ik_benchmark)
+
+    ikv = sub.add_parser("ik-vertical-test", help="synthetic vertical correction step test for IK tuning")
+    ikv.add_argument("--corr-x", type=float, default=0.0, help="normalized x correction input [-1..1]")
+    ikv.add_argument("--corr-y", type=float, default=0.4, help="normalized y correction input [-1..1]")
+    ikv.add_argument("--steps", type=int, default=20)
+    ikv.add_argument("--start-x", type=float, default=170.0)
+    ikv.add_argument("--start-z", type=float, default=90.0)
+    ikv.add_argument("--start-yaw", type=float, default=0.0, help="radians")
+    ikv.add_argument("--prefer", choices=("elbow_up", "elbow_down"), default="elbow_up")
+    ikv.set_defaults(func=cmd_ik_vertical_test)
 
     return p
 

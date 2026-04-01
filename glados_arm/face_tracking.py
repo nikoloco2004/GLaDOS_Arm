@@ -355,8 +355,12 @@ def run_tracking(
                     base_yaw_lim = math.radians(float(getattr(vc, "BASE_YAW_MAX_DEG", 90.0)))
                     base_yaw_rad = _clamp(base_yaw_rad, -base_yaw_lim, base_yaw_lim)
 
+                    y_for_z = corr_y_ctrl + float(getattr(vc, "SIGN_ERROR_X_TO_Z", 1.0)) * float(
+                        getattr(vc, "TRACK_Z_FROM_X_MIX", 0.0)
+                    ) * corr_x_ctrl
+                    y_for_z = _clamp(y_for_z, -1.0, 1.0)
                     z_step = (
-                        vc.SIGN_ERROR_Y_SHOULDER * corr_y_ctrl * float(getattr(vc, "TRACK_Z_MM_PER_NORM", 10.0))
+                        vc.SIGN_ERROR_Y_SHOULDER * y_for_z * float(getattr(vc, "TRACK_Z_MM_PER_NORM", 10.0))
                     )
                     z_step = _clamp(
                         z_step,
@@ -483,6 +487,15 @@ def run_tracking(
                             vis,
                             f"ik x={target_x_mm:5.1f} z={target_z_mm:5.1f} yaw={base_yaw_rad:+.3f} ramp x={x_ramp:.2f} y={y_ramp:.2f} status={ik_status}",
                             (10, 96),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (200, 255, 200),
+                            2,
+                        )
+                        cv2.putText(
+                            vis,
+                            f"y_for_z={y_for_z:+.3f} (xmix={float(getattr(vc, 'TRACK_Z_FROM_X_MIX', 0.0)):+.2f})",
+                            (10, 120),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.5,
                             (200, 255, 200),

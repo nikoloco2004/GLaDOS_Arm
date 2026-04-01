@@ -245,6 +245,8 @@ def run_tracking(
     filt_face_w: float | None = None
     x_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
     y_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
+    face_lock_frames = 0
+    engage = 0.0
 
     try:
         while True:
@@ -307,6 +309,7 @@ def run_tracking(
             dist_step_mm = 0.0
 
             if len(faces) > 0:
+                face_lock_frames += 1
                 areas = [fw * fh for (_x, _y, fw, fh) in faces]
                 i = int(np.argmax(areas))
                 x, y, fw, fh = faces[i]
@@ -340,6 +343,14 @@ def run_tracking(
                 corr_x_ctrl = corr_x_norm
                 corr_y_ctrl = corr_y_norm
 
+                lock_need = max(1, int(getattr(vc, "LOCK_IN_FRAMES", 6)))
+                engage_target = min(1.0, face_lock_frames / float(lock_need))
+                engage = _step_toward(
+                    engage,
+                    engage_target,
+                    max(1e-3, float(getattr(vc, "ENGAGE_UP_PER_FRAME", 0.20))),
+                )
+
                 if bool(getattr(vc, "RAMP_ENABLE", True)):
                     ramp_start = float(getattr(vc, "RAMP_START_ERROR", 0.10))
                     ramp_up = float(getattr(vc, "RAMP_UP_PER_FRAME", 0.10))
@@ -360,6 +371,9 @@ def run_tracking(
 
                     corr_x_ctrl = corr_x_norm * x_ramp
                     corr_y_ctrl = corr_y_norm * y_ramp
+                # Smooth first-lock behavior so the arm does not snap/overshoot on reacquire.
+                corr_x_ctrl *= engage
+                corr_y_ctrl *= engage
                 wrist_cmd = (
                     float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
                     * corr_y_ctrl
@@ -424,14 +438,16 @@ def run_tracking(
                         dist_mm_per_px = float(getattr(vc, "DIST_MM_PER_PX", 0.35))
                         dist_max_step = max(0.1, float(getattr(vc, "DIST_MAX_STEP_MM", 8.0)))
 
-                        measured_face_w = float(filt_face_w if filt_face_w is not None else fw)
-                        dist_err_px = desired_face_w - measured_face_w
-                        if abs(dist_err_px) < dist_db:
-                            dist_err_px = 0.0
-                        dist_err_px = _clamp(dist_err_px, -dist_err_limit, dist_err_limit)
-                        dist_step_mm = _clamp(dist_err_px * dist_mm_per_px, -dist_max_step, dist_max_step)
-                        # Smaller face (farther) => positive dist_err => increase x target (reach out).
-                        target_x_mm += dist_step_mm
+                        dist_allowed = (not bool(getattr(vc, "DIST_ENABLE_AFTER_LOCK", True))) or (engage >= 0.95)
+                        if dist_allowed:
+                            measured_face_w = float(filt_face_w if filt_face_w is not None else fw)
+                            dist_err_px = desired_face_w - measured_face_w
+                            if abs(dist_err_px) < dist_db:
+                                dist_err_px = 0.0
+                            dist_err_px = _clamp(dist_err_px, -dist_err_limit, dist_err_limit)
+                            dist_step_mm = _clamp(dist_err_px * dist_mm_per_px, -dist_max_step, dist_max_step)
+                            # Smaller face (farther) => positive dist_err => increase x target (reach out).
+                            target_x_mm += dist_step_mm
 
                     target_x_mm = max(float(getattr(vc, "TARGET_X_MIN_MM", 100.0)), min(float(getattr(vc, "TARGET_X_MAX_MM", 230.0)), target_x_mm))
                     target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm))
@@ -572,7 +588,7 @@ def run_tracking(
                             face_w_show = float(filt_face_w if filt_face_w is not None else fw)
                             cv2.putText(
                                 vis,
-                                f"dist face_w={face_w_show:5.1f}px target={float(getattr(vc, 'DESIRED_FACE_WIDTH_PX', 160.0)):5.1f}px err={dist_err_px:+5.1f}px dx={dist_step_mm:+4.1f}mm",
+                                f"engage={engage:.2f} dist face_w={face_w_show:5.1f}px target={float(getattr(vc, 'DESIRED_FACE_WIDTH_PX', 160.0)):5.1f}px err={dist_err_px:+5.1f}px dx={dist_step_mm:+4.1f}mm",
                                 (10, 144),
                                 cv2.FONT_HERSHEY_SIMPLEX,
                                 0.5,
@@ -583,6 +599,12 @@ def run_tracking(
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
             else:
+                face_lock_frames = 0
+                engage = _step_toward(
+                    engage,
+                    0.0,
+                    max(1e-3, float(getattr(vc, "ENGAGE_DOWN_PER_FRAME", 0.35))),
+                )
                 if preview:
                     vis = frame_bgr.copy()
                     cv2.line(vis, (int(cx_img), 0), (int(cx_img), h), (180, 180, 180), 1)

@@ -309,6 +309,13 @@ def run_tracking(
                 corr_y_norm = _apply_deadband(err_y, vc.TRACK_DEADBAND)
                 corr_x_px = corr_x_norm * cx_img
                 corr_y_px = corr_y_norm * cy_img
+                wrist_trim_deg = int(
+                    round(
+                        float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
+                        * corr_y_norm
+                        * float(getattr(vc, "TRACK_WRIST_DEG_PER_NORM", 0.8))
+                    )
+                )
 
                 if ctl == "ik":
                     base_step = (
@@ -316,11 +323,11 @@ def run_tracking(
                     )
                     base_step = _clamp(
                         base_step,
-                        -float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.06)),
-                        float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.06)),
+                        -float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08)),
+                        float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08)),
                     )
                     base_yaw_rad += base_step
-                    base_yaw_lim = math.radians(float(getattr(vc, "BASE_YAW_MAX_DEG", 75.0)))
+                    base_yaw_lim = math.radians(float(getattr(vc, "BASE_YAW_MAX_DEG", 90.0)))
                     base_yaw_rad = _clamp(base_yaw_rad, -base_yaw_lim, base_yaw_lim)
 
                     z_step = (
@@ -328,8 +335,8 @@ def run_tracking(
                     )
                     z_step = _clamp(
                         z_step,
-                        -float(getattr(vc, "MAX_Z_STEP_MM", 6.0)),
-                        float(getattr(vc, "MAX_Z_STEP_MM", 6.0)),
+                        -float(getattr(vc, "MAX_Z_STEP_MM", 10.0)),
+                        float(getattr(vc, "MAX_Z_STEP_MM", 10.0)),
                     )
                     target_z_mm += z_step
 
@@ -344,7 +351,7 @@ def run_tracking(
                     target_x_mm += x_step
 
                     target_x_mm = max(float(getattr(vc, "TARGET_X_MIN_MM", 100.0)), min(float(getattr(vc, "TARGET_X_MAX_MM", 230.0)), target_x_mm))
-                    target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 170.0)), target_z_mm))
+                    target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm))
 
                     solved = solve_vertical_plane(
                         x_mm=target_x_mm,
@@ -356,28 +363,41 @@ def run_tracking(
                     ik_status = solved.message
                     ik_clip_notes = solved.clip_notes
                     if solved.ok:
-                        cmd = solved.servo_clamped
-                        last_valid_cmd = cmd
-                    elif bool(getattr(vc, "IK_ACCEPT_CLAMPED", True)) and solved.ik.ok:
-                        # Accept clamped command so base/x can still move even when vertical chain clips.
-                        # Keep wrist at neutral by design.
                         cmd = ServoCommand(
-                            wrist=config.NEUTRAL_WRIST,
+                            wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
                             elbow=solved.servo_clamped.elbow,
                             base=solved.servo_clamped.base,
                             shoulder=solved.servo_clamped.shoulder,
                         )
+                        cmd, _ = clamp_servo(cmd)
+                        last_valid_cmd = cmd
+                    elif bool(getattr(vc, "IK_ACCEPT_CLAMPED", True)) and solved.ik.ok:
+                        # Accept clamped command so base/x can still move even when vertical chain clips.
+                        cmd = ServoCommand(
+                            wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
+                            elbow=solved.servo_clamped.elbow,
+                            base=solved.servo_clamped.base,
+                            shoulder=solved.servo_clamped.shoulder,
+                        )
+                        cmd, _ = clamp_servo(cmd)
                         last_valid_cmd = cmd
                     elif bool(getattr(vc, "IK_HOLD_LAST_ON_FAIL", True)):
                         # Preserve horizontal/base correction even when holding vertical state.
                         cmd = ServoCommand(
-                            wrist=last_valid_cmd.wrist,
+                            wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
                             elbow=last_valid_cmd.elbow,
                             base=solved.servo_clamped.base,
                             shoulder=last_valid_cmd.shoulder,
                         )
+                        cmd, _ = clamp_servo(cmd)
                     else:
-                        cmd = solved.servo_clamped
+                        cmd = ServoCommand(
+                            wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
+                            elbow=solved.servo_clamped.elbow,
+                            base=solved.servo_clamped.base,
+                            shoulder=solved.servo_clamped.shoulder,
+                        )
+                        cmd, _ = clamp_servo(cmd)
                 else:
                     d_base = int(
                         round(vc.SIGN_ERROR_X_BASE * corr_x_norm * vc.TRACK_GAIN_BASE_DEG)
@@ -408,7 +428,7 @@ def run_tracking(
                     cv2.circle(vis, (int(cx), int(cy)), 5, (0, 0, 255), -1)
                     cv2.putText(
                         vis,
-                        f"mode={ctl} b={cmd.base} s={cmd.shoulder} e={cmd.elbow}",
+                        f"mode={ctl} b={cmd.base} s={cmd.shoulder} e={cmd.elbow} w={cmd.wrist}",
                         (10, 24),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.6,

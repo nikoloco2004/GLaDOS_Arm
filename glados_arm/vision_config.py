@@ -32,7 +32,7 @@ CONTROL_MODE = "ik"
 # Image X correction (normalized) -> base yaw delta (rad/frame)
 TRACK_BASE_RAD_PER_NORM = 0.20
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
-TRACK_Z_MM_PER_NORM = 7.5
+TRACK_Z_MM_PER_NORM = 12.0
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
 IK_PREFER = "elbow_up"
@@ -45,11 +45,16 @@ TARGET_X_MAX_MM = 230.0
 TARGET_Z_MIN_MM = 0.0
 TARGET_Z_MAX_MM = 190.0
 # Additional controller bounds / smoothing
-BASE_YAW_MAX_DEG = 75.0
-MAX_BASE_YAW_STEP_RAD = 0.06
-MAX_Z_STEP_MM = 6.0
+BASE_YAW_MAX_DEG = 90.0
+MAX_BASE_YAW_STEP_RAD = 0.08
+MAX_Z_STEP_MM = 10.0
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.35
+
+# Minimal wrist participation for vertical correction in IK mode (degrees/frame per normalized error).
+# Keep small so shoulder+elbow do most of the work.
+TRACK_WRIST_DEG_PER_NORM = 0.8
+SIGN_ERROR_Y_WRIST = 1.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
 TRACK_DEADBAND = 0.03

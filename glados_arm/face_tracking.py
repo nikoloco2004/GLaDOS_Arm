@@ -247,6 +247,8 @@ def run_tracking(
     y_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
     wrist_trim_state = 0.0
     wrist_trim_last = 0
+    elbow_assist_state = 0.0
+    elbow_assist_last = 0
     face_lock_frames = 0
     engage = 0.0
 
@@ -413,6 +415,14 @@ def run_tracking(
                 )
                 elbow_assist_max = max(0, int(getattr(vc, "TRACK_ELBOW_ASSIST_MAX_DEG", 0)))
                 elbow_assist_deg = max(-elbow_assist_max, min(elbow_assist_max, elbow_assist_deg))
+                elbow_alpha = _clamp(float(getattr(vc, "ELBOW_SMOOTH_ALPHA", 0.25)), 0.0, 1.0)
+                elbow_assist_state = (1.0 - elbow_alpha) * elbow_assist_state + elbow_alpha * float(elbow_assist_deg)
+                elbow_assist_deg = int(round(elbow_assist_state))
+                elbow_step_max = max(1, int(getattr(vc, "ELBOW_MAX_STEP_PER_FRAME_DEG", 3)))
+                elbow_assist_deg = int(
+                    round(_step_toward(float(elbow_assist_last), float(elbow_assist_deg), float(elbow_step_max)))
+                )
+                elbow_assist_last = elbow_assist_deg
 
                 if ctl == "ik":
                     shoulder_dist_assist_deg = 0
@@ -560,6 +570,27 @@ def run_tracking(
                     est_model = servo_to_model(cmd)
                     est_fk = kinematics.forward_kinematics(est_model.q_shoulder_rad, est_model.q_elbow_rad)
                     z_err_mm = target_z_mm - est_fk.tip.z
+                    shoulder_zerr_assist_deg = 0
+                    if bool(getattr(vc, "ZERR_SHOULDER_ASSIST_ENABLE", True)):
+                        shoulder_zerr_assist_deg = int(
+                            round(
+                                float(getattr(vc, "ZERR_SIGN_SHOULDER", 1.0))
+                                * z_err_mm
+                                * float(getattr(vc, "ZERR_SHOULDER_DEG_PER_MM", 0.0))
+                            )
+                        )
+                        shoulder_zerr_max = max(0, int(getattr(vc, "ZERR_SHOULDER_MAX_DEG", 35)))
+                        shoulder_zerr_assist_deg = max(
+                            -shoulder_zerr_max, min(shoulder_zerr_max, shoulder_zerr_assist_deg)
+                        )
+                        cmd = ServoCommand(
+                            wrist=cmd.wrist,
+                            elbow=cmd.elbow,
+                            base=cmd.base,
+                            shoulder=cmd.shoulder + shoulder_zerr_assist_deg,
+                        )
+                        cmd, _ = clamp_servo(cmd)
+                    last_valid_cmd = cmd
                 else:
                     d_base = int(
                         round(vc.SIGN_ERROR_X_BASE * corr_x_ctrl * vc.TRACK_GAIN_BASE_DEG)

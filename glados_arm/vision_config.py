@@ -83,9 +83,16 @@ DIST_SHOULDER_ASSIST_ENABLE = True
 DIST_SHOULDER_DEG_PER_PX = 0.10
 DIST_SHOULDER_MAX_DEG = 28
 DIST_SIGN_SHOULDER = 1.0
+# Additional shoulder assist from measured z error (mm -> deg).
+ZERR_SHOULDER_ASSIST_ENABLE = True
+ZERR_SHOULDER_DEG_PER_MM = 0.35
+ZERR_SHOULDER_MAX_DEG = 35
+ZERR_SIGN_SHOULDER = 1.0
 # Elbow assist in IK mode for vertical compensation.
 TRACK_ELBOW_ASSIST_DEG_PER_NORM = 22.0
 TRACK_ELBOW_ASSIST_MAX_DEG = 35
+ELBOW_SMOOTH_ALPHA = 0.25
+ELBOW_MAX_STEP_PER_FRAME_DEG = 3
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 6

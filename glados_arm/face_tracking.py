@@ -193,9 +193,20 @@ def run_tracking(
     det_max_w = getattr(vc, "DETECT_MAX_WIDTH", 640)
     frame_idx = 0
     last_faces: list[tuple[int, int, int, int]] = []
+    fps_ema = 0.0
+    last_frame_t = time.time()
 
     try:
         while True:
+            now_t = time.time()
+            dt = max(1e-6, now_t - last_frame_t)
+            last_frame_t = now_t
+            inst_fps = 1.0 / dt
+            if fps_ema <= 1e-6:
+                fps_ema = inst_fps
+            else:
+                fps_ema = 0.9 * fps_ema + 0.1 * inst_fps
+
             raw = picam2.capture_array("main")
             if raw is None or raw.size == 0:
                 continue
@@ -238,6 +249,10 @@ def run_tracking(
             faces = last_faces
             cx_img = w * 0.5
             cy_img = h * 0.5
+            corr_x_norm = 0.0
+            corr_y_norm = 0.0
+            corr_x_px = 0.0
+            corr_y_px = 0.0
 
             if len(faces) > 0:
                 areas = [fw * fh for (_x, _y, fw, fh) in faces]
@@ -250,20 +265,22 @@ def run_tracking(
                 cx = x + fw * 0.5
                 cy = y + fh * 0.5
 
-                err_x = (cx - cx_img) / max(cx_img, 1.0)
-                err_y = (cy_img - cy) / max(cy_img, 1.0)
+                err_x = (cx - cx_img) / max(cx_img, 1.0)  # face right => +
+                err_y = (cy_img - cy) / max(cy_img, 1.0)  # face above => +
 
-                err_x = _apply_deadband(err_x, vc.TRACK_DEADBAND)
-                err_y = _apply_deadband(err_y, vc.TRACK_DEADBAND)
+                corr_x_norm = _apply_deadband(err_x, vc.TRACK_DEADBAND)
+                corr_y_norm = _apply_deadband(err_y, vc.TRACK_DEADBAND)
+                corr_x_px = corr_x_norm * cx_img
+                corr_y_px = corr_y_norm * cy_img
 
                 d_base = int(
-                    round(vc.SIGN_ERROR_X_BASE * err_x * vc.TRACK_GAIN_BASE_DEG)
+                    round(vc.SIGN_ERROR_X_BASE * corr_x_norm * vc.TRACK_GAIN_BASE_DEG)
                 )
                 d_sh = int(
-                    round(vc.SIGN_ERROR_Y_SHOULDER * err_y * vc.TRACK_GAIN_SHOULDER_DEG)
+                    round(vc.SIGN_ERROR_Y_SHOULDER * corr_y_norm * vc.TRACK_GAIN_SHOULDER_DEG)
                 )
                 d_el = int(
-                    round(vc.SIGN_ERROR_Y_ELBOW * err_y * vc.TRACK_GAIN_ELBOW_DEG)
+                    round(vc.SIGN_ERROR_Y_ELBOW * corr_y_norm * vc.TRACK_GAIN_ELBOW_DEG)
                 )
 
                 cmd = ServoCommand(
@@ -280,6 +297,8 @@ def run_tracking(
 
                 if preview:
                     vis = frame_bgr.copy()
+                    cv2.line(vis, (int(cx_img), 0), (int(cx_img), h), (180, 180, 180), 1)
+                    cv2.line(vis, (0, int(cy_img)), (w, int(cy_img)), (180, 180, 180), 1)
                     cv2.rectangle(vis, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
                     cv2.circle(vis, (int(cx), int(cy)), 5, (0, 0, 255), -1)
                     cv2.putText(
@@ -291,12 +310,32 @@ def run_tracking(
                         (0, 255, 0),
                         2,
                     )
+                    cv2.putText(
+                        vis,
+                        f"fps={fps_ema:4.1f} detect_n={detect_every}",
+                        (10, 48),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 255, 0),
+                        2,
+                    )
+                    cv2.putText(
+                        vis,
+                        f"corr x:{corr_x_px:+5.0f}px ({corr_x_norm:+.3f}) y:{corr_y_px:+5.0f}px ({corr_y_norm:+.3f})",
+                        (10, 72),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        (255, 200, 0),
+                        2,
+                    )
                     cv2.imshow("GLaDOS face track", vis)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
             else:
                 if preview:
                     vis = frame_bgr.copy()
+                    cv2.line(vis, (int(cx_img), 0), (int(cx_img), h), (180, 180, 180), 1)
+                    cv2.line(vis, (0, int(cy_img)), (w, int(cy_img)), (180, 180, 180), 1)
                     cv2.putText(
                         vis,
                         "no face",
@@ -304,6 +343,24 @@ def run_tracking(
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.7,
                         (0, 0, 255),
+                        2,
+                    )
+                    cv2.putText(
+                        vis,
+                        f"fps={fps_ema:4.1f} detect_n={detect_every}",
+                        (10, 48),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 255, 0),
+                        2,
+                    )
+                    cv2.putText(
+                        vis,
+                        "corr x:+0px (+0.000) y:+0px (+0.000)",
+                        (10, 72),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        (255, 200, 0),
                         2,
                     )
                     cv2.imshow("GLaDOS face track", vis)

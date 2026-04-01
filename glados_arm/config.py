@@ -47,8 +47,8 @@ BASE_YAW_SIGN = 1.0
 BASE_RAD_TO_SERVO_DEG = 180.0 / math.pi
 
 # Shoulder: model angle is offset from neutral (rad). 0 = neutral pose.
-# Servo increases when model shoulder increases (tune sign if motion is reversed).
-SHOULDER_SIGN = 1.0
+# Flipped to -1.0 based on IK benchmark evidence: large clipped_shoulder_min with elbow_up.
+SHOULDER_SIGN = -1.0
 SHOULDER_RAD_TO_SERVO_DEG = 180.0 / math.pi  # 1 model rad ≈ this many servo degrees (tune)
 
 # Elbow: inverted — "up" motion decreases servo from 270. Model offset from neutral (rad).

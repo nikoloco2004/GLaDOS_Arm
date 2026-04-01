@@ -402,6 +402,15 @@ def run_tracking(
                 )
                 shoulder_assist_max = max(0, int(getattr(vc, "TRACK_SHOULDER_ASSIST_MAX_DEG", 0)))
                 shoulder_assist_deg = max(-shoulder_assist_max, min(shoulder_assist_max, shoulder_assist_deg))
+                elbow_assist_deg = int(
+                    round(
+                        float(getattr(vc, "SIGN_ERROR_Y_ELBOW", 1.0))
+                        * corr_y_ctrl
+                        * float(getattr(vc, "TRACK_ELBOW_ASSIST_DEG_PER_NORM", 0.0))
+                    )
+                )
+                elbow_assist_max = max(0, int(getattr(vc, "TRACK_ELBOW_ASSIST_MAX_DEG", 0)))
+                elbow_assist_deg = max(-elbow_assist_max, min(elbow_assist_max, elbow_assist_deg))
 
                 if ctl == "ik":
                     base_step = (
@@ -489,7 +498,7 @@ def run_tracking(
                     if vertical_ok and solved.ik.ok:
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=solved.servo_clamped.elbow,
+                            elbow=solved.servo_clamped.elbow + elbow_assist_deg,
                             base=solved.servo_clamped.base,
                             shoulder=solved.servo_clamped.shoulder + shoulder_assist_deg,
                         )
@@ -499,7 +508,7 @@ def run_tracking(
                         # Accept clamped command so base/x can still move even when vertical chain clips.
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=solved.servo_clamped.elbow,
+                            elbow=solved.servo_clamped.elbow + elbow_assist_deg,
                             base=solved.servo_clamped.base,
                             shoulder=solved.servo_clamped.shoulder + shoulder_assist_deg,
                         )
@@ -509,7 +518,7 @@ def run_tracking(
                         # Preserve horizontal/base correction even when holding vertical state.
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=last_valid_cmd.elbow,
+                            elbow=last_valid_cmd.elbow + elbow_assist_deg,
                             base=solved.servo_clamped.base,
                             shoulder=last_valid_cmd.shoulder + shoulder_assist_deg,
                         )
@@ -517,7 +526,7 @@ def run_tracking(
                     else:
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=solved.servo_clamped.elbow,
+                            elbow=solved.servo_clamped.elbow + elbow_assist_deg,
                             base=solved.servo_clamped.base,
                             shoulder=solved.servo_clamped.shoulder + shoulder_assist_deg,
                         )

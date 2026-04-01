@@ -62,11 +62,11 @@ FACE_CENTER_ALPHA = 0.35
 # The controller nudges target_x_mm (range depth) toward DESIRED_FACE_WIDTH_PX.
 DIST_CONTROL_ENABLE = True
 DESIRED_FACE_WIDTH_PX = 160.0
-DIST_DEADBAND_PX = 10.0
+DIST_DEADBAND_PX = 3.0
 DIST_ERR_CLAMP_PX = 120.0
-DIST_MM_PER_PX = 0.55
+DIST_MM_PER_PX = 0.75
 DIST_MAX_STEP_MM = 12.0
-DIST_ALPHA = 0.25
+DIST_ALPHA = 0.40
 DIST_ENABLE_AFTER_LOCK = True
 # Distance sign: +1 means smaller face -> increase x target; -1 flips behavior.
 DIST_SIGN_X = -1.0
@@ -74,6 +74,9 @@ DIST_SIGN_X = -1.0
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
 TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 0.0
 TRACK_SHOULDER_ASSIST_MAX_DEG = 0
+# Elbow assist in IK mode for vertical compensation.
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 22.0
+TRACK_ELBOW_ASSIST_MAX_DEG = 35
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 6

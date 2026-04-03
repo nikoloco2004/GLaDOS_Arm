@@ -1,3 +1,4 @@
+import os
 import queue
 import threading
 from typing import Any
@@ -8,6 +9,17 @@ from numpy.typing import NDArray
 import sounddevice as sd  # type: ignore
 
 from . import VAD
+
+
+def _device_index_from_env(name: str) -> int | None:
+    """Parse GLADOS_SD_INPUT_DEVICE / GLADOS_SD_OUTPUT_DEVICE (PortAudio device index)."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError as e:
+        raise ValueError(f"{name} must be an integer PortAudio device index, got {raw!r}") from e
 
 
 class SoundDeviceAudioIO:
@@ -41,6 +53,15 @@ class SoundDeviceAudioIO:
             raise ValueError("VAD threshold must be between 0 and 1")
 
         self._vad_model = VAD()
+
+        self._input_device: int | None = _device_index_from_env("GLADOS_SD_INPUT_DEVICE")
+        self._output_device: int | None = _device_index_from_env("GLADOS_SD_OUTPUT_DEVICE")
+        if self._input_device is not None or self._output_device is not None:
+            logger.info(
+                "PortAudio devices from env: input={} output={}",
+                self._input_device,
+                self._output_device,
+            )
 
         self._sample_queue: queue.Queue[tuple[NDArray[np.float32], bool]] = queue.Queue()
         self.input_stream: sd.InputStream | None = None
@@ -91,12 +112,15 @@ class SoundDeviceAudioIO:
             self._sample_queue.put((data, bool(vad_confidence)))
 
         try:
-            self.input_stream = sd.InputStream(
-                samplerate=self.SAMPLE_RATE,
-                channels=1,
-                callback=audio_callback,
-                blocksize=int(self.SAMPLE_RATE * self.VAD_SIZE / 1000),
-            )
+            stream_kw: dict[str, Any] = {
+                "samplerate": self.SAMPLE_RATE,
+                "channels": 1,
+                "callback": audio_callback,
+                "blocksize": int(self.SAMPLE_RATE * self.VAD_SIZE / 1000),
+            }
+            if self._input_device is not None:
+                stream_kw["device"] = self._input_device
+            self.input_stream = sd.InputStream(**stream_kw)
             self.input_stream.start()
         except sd.PortAudioError as e:
             raise RuntimeError(f"Failed to start audio input stream: {e}") from e
@@ -143,7 +167,10 @@ class SoundDeviceAudioIO:
 
         logger.debug(f"Playing audio with sample rate: {sample_rate} Hz, length: {len(audio_data)} samples")
         self._is_playing = True
-        sd.play(audio_data, sample_rate)
+        play_kw: dict[str, Any] = {}
+        if self._output_device is not None:
+            play_kw["device"] = self._output_device
+        sd.play(audio_data, sample_rate, **play_kw)
 
     def measure_percentage_spoken(self, total_samples: int, sample_rate: int | None = None) -> tuple[bool, int]:
         """
@@ -182,12 +209,15 @@ class SoundDeviceAudioIO:
 
         try:
             logger.debug(f"Using sample rate: {sample_rate} Hz, total samples: {total_samples}")
-            stream = sd.OutputStream(
-                callback=stream_callback,
-                samplerate=sample_rate,
-                channels=1,
-                finished_callback=completion_event.set,
-            )
+            out_kw: dict[str, Any] = {
+                "callback": stream_callback,
+                "samplerate": sample_rate,
+                "channels": 1,
+                "finished_callback": completion_event.set,
+            }
+            if self._output_device is not None:
+                out_kw["device"] = self._output_device
+            stream = sd.OutputStream(**out_kw)
             with stream:
                 # Add a reasonable maximum timeout to prevent indefinite blocking
                 max_timeout = total_samples / sample_rate

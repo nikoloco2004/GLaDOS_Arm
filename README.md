@@ -132,12 +132,14 @@ chmod +x scripts/install_personality_pi.sh
 ./scripts/install_personality_pi.sh
 ```
 
-3. **Install Ollama** for Linux ARM64 from [ollama.com/download](https://ollama.com/download/linux), then:
+3. **Install Ollama** (official installer + pull the small model):
 
 ```bash
-ollama pull llama3.2:1b
-# Usually: sudo systemctl enable --now ollama   (or run `ollama serve` in another terminal)
+chmod +x scripts/setup_ollama_pi.sh
+./scripts/setup_ollama_pi.sh
 ```
+
+Or install manually from [ollama.com/download/linux](https://ollama.com/download/linux), then `ollama pull llama3.2:1b`. The model name must match [`configs/pi_potato.yaml`](configs/pi_potato.yaml) (`llm_model`).
 
 4. **Run GLaDOS** with the potato config:
 
@@ -146,7 +148,22 @@ cd personality_core
 uv run glados start --config ../configs/pi_potato.yaml --input-mode audio
 ```
 
-5. **Audio devices**: if capture/playback pick the wrong hardware, list devices with `arecord -l` and `aplay -l`, then set the default ALSA/PipeWire device for your USB mic and amp/speaker.
+5. **Audio devices** (USB mic + amp/speaker): GLaDOS uses PortAudio via `sounddevice`. List devices and defaults:
+
+```bash
+chmod +x scripts/pi_list_audio_devices.sh
+./scripts/pi_list_audio_devices.sh
+```
+
+Pick the **device index** for your mic and speaker, then before starting GLaDOS:
+
+```bash
+export GLADOS_SD_INPUT_DEVICE=2    # example: your USB mic index
+export GLADOS_SD_OUTPUT_DEVICE=1    # example: headphone jack / USB DAC index
+cd personality_core && uv run glados start --config ../configs/pi_potato.yaml --input-mode audio
+```
+
+You can also set the system default with `arecord -l` / `aplay -l` and PipeWire/ALSA (`wpctl`, `pactl set-default-source`, or `~/.asoundrc`) so the default PortAudio device is correct without env vars.
 
 **Notes**
 

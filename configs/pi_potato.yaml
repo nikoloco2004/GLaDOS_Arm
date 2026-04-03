@@ -1,6 +1,12 @@
 ﻿# Pi 5 + potato GLaDOS — copy of upstream defaults with lean MCP and potato personality.
 # Run from personality_core:  uv run glados start --config ../configs/pi_potato.yaml --input-mode audio
-# Pull a small model first, e.g.:  ollama pull llama3.2:1b
+#
+# Ollama: scripts/setup_ollama_pi.sh  OR  ollama pull llama3.2:1b
+# Audio:  scripts/pi_list_audio_devices.sh  then optionally:
+#   export GLADOS_SD_INPUT_DEVICE=2
+#   export GLADOS_SD_OUTPUT_DEVICE=3
+# (PortAudio indices; wrong mic/speaker is the most common Pi issue.)
+# Vision/FastVLM: omitted here so no VLM loads on Pi.
 
 Glados:
   llm_model: "llama3.2:1b"

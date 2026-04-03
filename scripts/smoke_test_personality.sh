@@ -12,6 +12,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PC="${REPO_ROOT}/personality_core"
 CFG="${REPO_ROOT}/configs/pi_potato.yaml"
 
+if [[ -f "${REPO_ROOT}/scripts/pi_env.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "${REPO_ROOT}/scripts/pi_env.sh"
+fi
+
 echo "==> Repo root: ${REPO_ROOT}"
 cd "${PC}"
 

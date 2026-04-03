@@ -131,21 +131,47 @@ Use your own username if different; on the Pi, `cd` to the repo root before runn
 
 ### Raspberry Pi 5 (recommended path)
 
-1. **Pull this repo on the Pi** (or copy `personality_core/` + `configs/` + `scripts/install_personality_pi.sh`).
+0. **Update the clone and fix script permissions** (fresh Git checkouts often have scripts non-executable):
 
-2. **One-shot installer** (APT + `uv` + upstream `scripts/install.py` + model download):
+```bash
+cd /home/nicopi/Documents/Cursor/GLaDOS_Arm
+git pull origin main
+chmod +x scripts/*.sh
+```
+
+If you still get **Permission denied**, run scripts with **`bash`** (no execute bit needed):
+
+```bash
+bash scripts/install_personality_pi.sh
+bash scripts/setup_ollama_pi.sh
+```
+
+1. **One-shot installer** (APT + `uv` + upstream `scripts/install.py` + model download):
 
 ```bash
 cd /home/nicopi/Documents/Cursor/GLaDOS_Arm   # repo root containing personality_core/
-chmod +x scripts/install_personality_pi.sh
-./scripts/install_personality_pi.sh
+bash scripts/install_personality_pi.sh
 ```
+
+2. **Put `uv` on your PATH** (the installer adds it under `~/.local/bin`). In **every new terminal** before `uv run`:
+
+```bash
+source scripts/pi_env.sh
+```
+
+To make this permanent, add one line to `~/.bashrc`:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Or call `uv` by full path: `~/.local/bin/uv run glados ...`
 
 3. **Install Ollama** (official installer + pull the small model):
 
 ```bash
-chmod +x scripts/setup_ollama_pi.sh
-./scripts/setup_ollama_pi.sh
+bash scripts/setup_ollama_pi.sh
 ```
 
 Or install manually from [ollama.com/download/linux](https://ollama.com/download/linux), then `ollama pull llama3.2:1b`. The model name must match [`configs/pi_potato.yaml`](configs/pi_potato.yaml) (`llm_model`).
@@ -153,6 +179,8 @@ Or install manually from [ollama.com/download/linux](https://ollama.com/download
 4. **Run GLaDOS** with the potato config:
 
 ```bash
+cd /home/nicopi/Documents/Cursor/GLaDOS_Arm
+source scripts/pi_env.sh
 cd personality_core
 uv run glados start --config ../configs/pi_potato.yaml --input-mode audio
 ```
@@ -160,19 +188,30 @@ uv run glados start --config ../configs/pi_potato.yaml --input-mode audio
 5. **Audio devices** (USB mic + amp/speaker): GLaDOS uses PortAudio via `sounddevice`. List devices and defaults:
 
 ```bash
-chmod +x scripts/pi_list_audio_devices.sh
-./scripts/pi_list_audio_devices.sh
+cd /home/nicopi/Documents/Cursor/GLaDOS_Arm
+source scripts/pi_env.sh
+bash scripts/pi_list_audio_devices.sh
 ```
 
 Pick the **device index** for your mic and speaker, then before starting GLaDOS:
 
 ```bash
+source scripts/pi_env.sh
 export GLADOS_SD_INPUT_DEVICE=2    # example: your USB mic index
 export GLADOS_SD_OUTPUT_DEVICE=1    # example: headphone jack / USB DAC index
 cd personality_core && uv run glados start --config ../configs/pi_potato.yaml --input-mode audio
 ```
 
 You can also set the system default with `arecord -l` / `aplay -l` and PipeWire/ALSA (`wpctl`, `pactl set-default-source`, or `~/.asoundrc`) so the default PortAudio device is correct without env vars.
+
+**Pi troubleshooting**
+
+| Problem | What to do |
+|--------|------------|
+| `Permission denied` on `./scripts/...` | Run `chmod +x scripts/*.sh` **or** use `bash scripts/NAME.sh` |
+| `uv: command not found` | Run `source scripts/pi_env.sh` or add `~/.local/bin` to `PATH` (see step 2). Install scripts must finish successfully first. |
+| `smoke_test_personality.sh: No such file` | Run `git pull origin main` — that file was added in a later commit. |
+| Scripts ran but new shell lost `uv` | `source ~/.bashrc` or `source scripts/pi_env.sh` |
 
 **Notes**
 
@@ -182,7 +221,7 @@ You can also set the system default with `arecord -l` / `aplay -l` and PipeWire/
 
 **Manual install** (if you skip the script): `sudo apt install -y libportaudio2 portaudio19-dev build-essential python3 python3-venv`, install `uv`, then `cd personality_core && python3 scripts/install.py`.
 
-**Smoke test** (after install + Ollama optional): from repo root, `chmod +x scripts/smoke_test_personality.sh && ./scripts/smoke_test_personality.sh` — loads [`configs/pi_potato.yaml`](configs/pi_potato.yaml), checks `glados --help`, probes Ollama on `:11434`.
+**Smoke test** (after install + Ollama optional): from repo root, `git pull` then `source scripts/pi_env.sh && bash scripts/smoke_test_personality.sh` — loads [`configs/pi_potato.yaml`](configs/pi_potato.yaml), checks `glados --help`, probes Ollama on `:11434`.
 
 ---
 

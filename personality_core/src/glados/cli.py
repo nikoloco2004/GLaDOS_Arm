@@ -26,11 +26,11 @@ MODEL_DETAILS: dict[FileName, dict[FileURL, FileHash]] = {
     # NeMo YAML configs live in the upstream repo (not the release asset bundle); required for TDT/CTC ASR.
     "models/ASR/parakeet-tdt-0.6b-v3_model_config.yaml": {
         "url": "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/ASR/parakeet-tdt-0.6b-v3_model_config.yaml",
-        "checksum": "9e11e5e768d30dd6c66f9db2278fc047508022f3032d97a1fff6763656db94be",
+        "checksum": "6544f64d45e909ba79212fd71c81b6568ca31ecee4a53f7741a268bfda53ffe7",
     },
     "models/ASR/parakeet-tdt_ctc-110m_model_config.yaml": {
         "url": "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/ASR/parakeet-tdt_ctc-110m_model_config.yaml",
-        "checksum": "ff1bdcf42c704d712a1d1c42e76f3fdedcbc17139bd03062c3c7f08782f86023",
+        "checksum": "9f193b0b9236df039c1a7261a70d85baf58c64ebf4ad2826612ef30e6972e031",
     },
     "models/ASR/nemo-parakeet_tdt_ctc_110m.onnx": {
         "url": "https://github.com/dnhkng/GlaDOS/releases/download/0.1/nemo-parakeet_tdt_ctc_110m.onnx",

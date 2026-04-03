@@ -212,6 +212,8 @@ You can also set the system default with `arecord -l` / `aplay -l` and PipeWire/
 | `uv: command not found` | Run `source scripts/pi_env.sh` or add `~/.local/bin` to `PATH` (see step 2). Install scripts must finish successfully first. |
 | `smoke_test_personality.sh: No such file` | Run `git pull origin main` — that file was added in a later commit. |
 | Scripts ran but new shell lost `uv` | `source ~/.bashrc` or `source scripts/pi_env.sh` |
+| `git pull` refuses (local changes / untracked files) | See **Pi: fixing a messy `git pull`** below. |
+| `Unable to locate package libportaudio2-dev` | Fixed in current `install_personality_pi.sh` (use `portaudio19-dev` only). `git pull` and re-run `bash scripts/install_personality_pi.sh`. |
 
 **Notes**
 
@@ -222,6 +224,18 @@ You can also set the system default with `arecord -l` / `aplay -l` and PipeWire/
 **Manual install** (if you skip the script): `sudo apt install -y libportaudio2 portaudio19-dev build-essential python3 python3-venv`, install `uv`, then `cd personality_core && python3 scripts/install.py`.
 
 **Smoke test** (after install + Ollama optional): from repo root, `git pull` then `source scripts/pi_env.sh && bash scripts/smoke_test_personality.sh` — loads [`configs/pi_potato.yaml`](configs/pi_potato.yaml), checks `glados --help`, probes Ollama on `:11434`.
+
+**Pi: fixing a messy `git pull`**
+
+If `git pull` says it would overwrite local changes or untracked files, you usually want the **GitHub version** and can reset (this discards uncommitted edits in the repo):
+
+```bash
+cd /home/nicopi/Documents/Cursor/GLaDOS_Arm
+git fetch origin
+git reset --hard origin/main
+```
+
+If untracked files still block a merge, remove only the conflicting paths (example: old hand-copied `scripts/pi_env.sh`), then `git pull` again. When in doubt, back up the folder, then `git clean -fd` **only if** you accept deleting untracked files.
 
 ---
 

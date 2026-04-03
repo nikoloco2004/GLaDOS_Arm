@@ -20,7 +20,6 @@ echo "==> APT: PortAudio (mic/speaker), build tools, Python"
 sudo apt-get update
 sudo apt-get install -y \
   libportaudio2 \
-  libportaudio2-dev \
   portaudio19-dev \
   ffmpeg \
   git \

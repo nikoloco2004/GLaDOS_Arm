@@ -68,6 +68,27 @@ MODEL_DETAILS: dict[FileName, dict[FileURL, FileHash]] = {
         "url": "https://github.com/dnhkng/GlaDOS/releases/download/0.1/phomenizer_en.onnx",
         "checksum": "b64dbbeca8b350927a0b6ca5c4642e0230173034abd0b5bb72c07680d700c5a0",
     },
+    # GLaDOS TTS: pickles + glados.json live in upstream repo (gitignored *.pkl); required by Phonemizer + SpeechSynthesizer.
+    "models/TTS/lang_phoneme_dict.pkl": {
+        "url": "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/TTS/lang_phoneme_dict.pkl",
+        "checksum": "bf5591e3a4cbd6e5ea894082c2323e8d36238be68e4d1aab3abd9e7666c74567",
+    },
+    "models/TTS/phoneme_to_id.pkl": {
+        "url": "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/TTS/phoneme_to_id.pkl",
+        "checksum": "9e3701cc22f596ae2add7c52953208fda47d55890a6b5f16612de3fe7336259e",
+    },
+    "models/TTS/token_to_idx.pkl": {
+        "url": "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/TTS/token_to_idx.pkl",
+        "checksum": "32b4f54ac2c662b4e6cd9e9dc77461ad08c27c531992ab38359c11375a154e43",
+    },
+    "models/TTS/idx_to_token.pkl": {
+        "url": "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/TTS/idx_to_token.pkl",
+        "checksum": "398c6fb9016d9ee380684c3b0f2ac6b10f959edc202e9a5fbd6be009bdfcdecb",
+    },
+    "models/TTS/glados.json": {
+        "url": "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/TTS/glados.json",
+        "checksum": "01f5e602e1ec04daec6d54960e4d641b5de305f39186e40bf9b4a47bd757a489",
+    },
     "models/Vision/vision_encoder_fp16.onnx": {
         "url": "https://github.com/dnhkng/GLaDOS/releases/download/0.1/vision_encoder_fp16.onnx",
         "checksum": "18eeac87e206e3d7f6d6c65dbd47c53ac563b934478b4d78388cadfcd974915c",

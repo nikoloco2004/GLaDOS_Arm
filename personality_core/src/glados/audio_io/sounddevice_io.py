@@ -22,6 +22,125 @@ def _device_index_from_env(name: str) -> int | None:
         raise ValueError(f"{name} must be an integer PortAudio device index, got {raw!r}") from e
 
 
+def _resample_linear_mono(
+    data: NDArray[np.float32],
+    orig_sr: float,
+    target_sr: float,
+) -> NDArray[np.float32]:
+    """Linear resample mono float32 audio (no scipy; works on Raspberry Pi ALSA quirks)."""
+    if orig_sr == target_sr or data.size == 0:
+        return np.asarray(data, dtype=np.float32).reshape(-1)
+    x = np.asarray(data, dtype=np.float64).reshape(-1)
+    n = x.shape[0]
+    duration = n / orig_sr
+    target_n = max(1, int(round(duration * target_sr)))
+    t_old = np.linspace(0.0, duration, n, endpoint=False)
+    t_new = np.linspace(0.0, duration, target_n, endpoint=False)
+    return np.interp(t_new, t_old, x).astype(np.float32)
+
+
+def _device_index(device: int | None, *, is_input: bool) -> int:
+    if device is None:
+        return sd.default.device[0] if is_input else sd.default.device[1]
+    return device
+
+
+def _default_samplerate_for_device(device: int | None, *, is_input: bool) -> float:
+    """PortAudio-reported default sample rate (may not match what ALSA actually accepts)."""
+    idx = _device_index(device, is_input=is_input)
+    info = sd.query_devices(idx)
+    sr = float(info.get("default_samplerate") or 0.0)
+    if sr <= 0:
+        return 48000.0
+    return sr
+
+
+def _env_float(name: str) -> float | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("{} must be a number, ignoring", name)
+        return None
+
+
+def _samplerate_is_supported(device: int | None, sr: float, *, is_input: bool) -> bool:
+    """True if PortAudio can open this device at sr.
+
+    On ALSA, ``sd.check`` / Pa_IsFormatSupported can lie; a short real open is authoritative.
+    """
+    dev = _device_index(device, is_input=is_input)
+    try:
+        if is_input:
+
+            def _in_cb(indata: NDArray[np.float32], frames: int, t: Any, st: Any) -> None:
+                pass
+
+            stream = sd.InputStream(
+                device=dev,
+                samplerate=sr,
+                channels=1,
+                callback=_in_cb,
+                blocksize=1024,
+            )
+        else:
+
+            def _out_cb(outdata: NDArray[np.float32], frames: int, t: Any, st: Any) -> None:
+                outdata.fill(0)
+
+            stream = sd.OutputStream(
+                device=dev,
+                samplerate=sr,
+                channels=1,
+                callback=_out_cb,
+                blocksize=1024,
+            )
+        stream.start()
+        stream.stop()
+        stream.close()
+        return True
+    except Exception:
+        pass
+    check = getattr(sd, "check", None)
+    if callable(check):
+        try:
+            check(device=dev, samplerate=sr, channels=1)
+            return True
+        except Exception:
+            return False
+    return False
+
+
+def _ordered_input_samplerates(device: int | None) -> list[float]:
+    """Try 16 kHz first (ASR), then PortAudio default, then common ALSA rates."""
+    d = _default_samplerate_for_device(device, is_input=True)
+    preferred = [16000.0]
+    if abs(d - 16000.0) > 0.5:
+        preferred.append(d)
+    rest = [48000.0, 44100.0, 32000.0, 24000.0, 22050.0, 12000.0, 8000.0]
+    out: list[float] = []
+    for x in preferred + rest:
+        if not any(abs(x - y) < 0.5 for y in out):
+            out.append(x)
+    return out
+
+
+def _ordered_output_samplerates(device: int | None) -> list[float]:
+    """Prefer PortAudio default, then rates USB / I2S hats usually support."""
+    d = _default_samplerate_for_device(device, is_input=False)
+    preferred: list[float] = []
+    if d > 0:
+        preferred.append(d)
+    rest = [48000.0, 44100.0, 32000.0, 24000.0, 22050.0, 16000.0, 12000.0, 8000.0]
+    out: list[float] = []
+    for x in preferred + rest:
+        if not any(abs(x - y) < 0.5 for y in out):
+            out.append(x)
+    return out
+
+
 class SoundDeviceAudioIO:
     """Audio I/O implementation using sounddevice for both input and output.
 
@@ -65,6 +184,8 @@ class SoundDeviceAudioIO:
 
         self._sample_queue: queue.Queue[tuple[NDArray[np.float32], bool]] = queue.Queue()
         self.input_stream: sd.InputStream | None = None
+        self._capture_sr: float = float(self.SAMPLE_RATE)  # actual InputStream rate (may != 16 kHz)
+        self._cached_output_sr: float | None = None  # first working playback rate (ALSA often != default_samplerate)
         self._is_playing = False
         self._playback_thread = None
         self._stop_event = threading.Event()
@@ -83,47 +204,69 @@ class SoundDeviceAudioIO:
         if self.input_stream is not None:
             self.stop_listening()
 
-        def audio_callback(
-            indata: NDArray[np.float32],
-            frames: int,
-            time: sd.CallbackStop,
-            status: sd.CallbackFlags,
-        ) -> None:
-            """Process incoming audio data and put it in the queue with VAD confidence.
+        def make_callback(hw_sr: float):
+            def audio_callback(
+                indata: NDArray[np.float32],
+                frames: int,
+                time: sd.CallbackStop,
+                status: sd.CallbackFlags,
+            ) -> None:
+                if status:
+                    logger.debug(f"Audio callback status: {status}")
 
-            Parameters:
-                indata: Input audio data from the sounddevice stream
-                frames: Number of audio frames in the current chunk
-                time: Timing information for the audio callback
-                status: Status flags for the audio callback
+                data = np.array(indata).copy().squeeze()
+                if hw_sr != float(self.SAMPLE_RATE):
+                    data = _resample_linear_mono(data, hw_sr, float(self.SAMPLE_RATE))
+                vad_value = self._vad_model(np.expand_dims(data, 0))
+                vad_confidence = vad_value > self.vad_threshold
+                self._sample_queue.put((data, bool(vad_confidence)))
 
-            Notes:
-                - Copies and squeezes the input data to ensure single-channel processing
-                - Applies voice activity detection to determine speech presence
-                - Puts processed audio samples and VAD confidence into a thread-safe queue
-            """
-            if status:
-                # Log any errors for debugging
-                logger.debug(f"Audio callback status: {status}")
+            return audio_callback
 
-            data = np.array(indata).copy().squeeze()  # Reduce to single channel if necessary
-            vad_value = self._vad_model(np.expand_dims(data, 0))
-            vad_confidence = vad_value > self.vad_threshold
-            self._sample_queue.put((data, bool(vad_confidence)))
-
-        try:
+        def try_open(hw_sr: float) -> None:
+            self._capture_sr = hw_sr
             stream_kw: dict[str, Any] = {
-                "samplerate": self.SAMPLE_RATE,
+                "samplerate": hw_sr,
                 "channels": 1,
-                "callback": audio_callback,
-                "blocksize": int(self.SAMPLE_RATE * self.VAD_SIZE / 1000),
+                "callback": make_callback(hw_sr),
+                "blocksize": max(1, int(hw_sr * self.VAD_SIZE / 1000)),
             }
             if self._input_device is not None:
                 stream_kw["device"] = self._input_device
-            self.input_stream = sd.InputStream(**stream_kw)
-            self.input_stream.start()
-        except sd.PortAudioError as e:
-            raise RuntimeError(f"Failed to start audio input stream: {e}") from e
+            stream = sd.InputStream(**stream_kw)
+            try:
+                stream.start()
+            except Exception:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+                raise
+            self.input_stream = stream
+
+        env_in = _env_float("GLADOS_AUDIO_INPUT_SR")
+        candidates = _ordered_input_samplerates(self._input_device)
+        if env_in is not None and env_in > 0:
+            candidates = [env_in] + [x for x in candidates if abs(x - env_in) > 0.5]
+            logger.info("Input sample rate candidates start with GLADOS_AUDIO_INPUT_SR={} Hz", env_in)
+
+        last_err: BaseException | None = None
+        for sr in candidates:
+            try:
+                try_open(float(sr))
+                if abs(float(sr) - float(self.SAMPLE_RATE)) > 0.5:
+                    logger.warning(
+                        "Microphone opened at {} Hz; resampling to {} Hz for ASR/VAD",
+                        sr,
+                        self.SAMPLE_RATE,
+                    )
+                return
+            except sd.PortAudioError as e:
+                last_err = e
+                continue
+        raise RuntimeError(
+            f"Failed to start audio input stream after trying rates {candidates!r}: {last_err}"
+        ) from last_err
 
     def stop_listening(self) -> None:
         """Stop capturing audio and clean up resources.
@@ -165,12 +308,46 @@ class SoundDeviceAudioIO:
         # Reset the stop event
         self._stop_event.clear()
 
-        logger.debug(f"Playing audio with sample rate: {sample_rate} Hz, length: {len(audio_data)} samples")
+        out_sr = self._resolve_output_samplerate()
+        play_data = np.asarray(audio_data, dtype=np.float32)
+        if float(sample_rate) != out_sr:
+            play_data = _resample_linear_mono(play_data, float(sample_rate), out_sr)
+            logger.debug("Resampled playback {} Hz -> {} Hz for PortAudio device", sample_rate, out_sr)
+        logger.debug(
+            "Playing audio with sample rate: {} Hz (device), length: {} samples",
+            out_sr,
+            len(play_data),
+        )
         self._is_playing = True
         play_kw: dict[str, Any] = {}
         if self._output_device is not None:
             play_kw["device"] = self._output_device
-        sd.play(audio_data, sample_rate, **play_kw)
+        sd.play(play_data, out_sr, **play_kw)
+
+    def _resolve_output_samplerate(self) -> float:
+        """Pick a rate ALSA accepts; cache result. Override: GLADOS_AUDIO_OUTPUT_SR=48000."""
+        if self._cached_output_sr is not None:
+            return self._cached_output_sr
+        env = _env_float("GLADOS_AUDIO_OUTPUT_SR")
+        if env is not None and env > 0:
+            self._cached_output_sr = env
+            logger.info("Playback sample rate from GLADOS_AUDIO_OUTPUT_SR: {} Hz", env)
+            return env
+        for sr in _ordered_output_samplerates(self._output_device):
+            if _samplerate_is_supported(self._output_device, sr, is_input=False):
+                self._cached_output_sr = sr
+                default = _default_samplerate_for_device(self._output_device, is_input=False)
+                if abs(sr - default) > 0.5:
+                    logger.info(
+                        "Playback using {} Hz (PortAudio default_samplerate {} Hz was not usable)",
+                        sr,
+                        default,
+                    )
+                return sr
+        raise RuntimeError(
+            "No working output sample rate. Try: export GLADOS_AUDIO_OUTPUT_SR=48000 "
+            "(or 44100), and set GLADOS_SD_OUTPUT_DEVICE to the correct PortAudio index."
+        )
 
     def measure_percentage_spoken(self, total_samples: int, sample_rate: int | None = None) -> tuple[bool, int]:
         """
@@ -190,6 +367,11 @@ class SoundDeviceAudioIO:
         """
         if sample_rate is None:
             sample_rate = self.SAMPLE_RATE
+
+        out_sr = self._resolve_output_samplerate()
+        if float(sample_rate) != out_sr:
+            total_samples = int(round(total_samples * (out_sr / float(sample_rate))))
+            sample_rate = int(out_sr)
 
         interrupted = False
         progress = 0
@@ -211,7 +393,7 @@ class SoundDeviceAudioIO:
             logger.debug(f"Using sample rate: {sample_rate} Hz, total samples: {total_samples}")
             out_kw: dict[str, Any] = {
                 "callback": stream_callback,
-                "samplerate": sample_rate,
+                "samplerate": float(sample_rate),
                 "channels": 1,
                 "finished_callback": completion_event.set,
             }
@@ -231,7 +413,7 @@ class SoundDeviceAudioIO:
         except (sd.PortAudioError, RuntimeError):
             logger.debug("Audio stream already closed or invalid")
 
-        percentage_played = min(int(progress / total_samples * 100), 100)
+        percentage_played = min(int(progress / total_samples * 100), 100) if total_samples else 0
         return interrupted, percentage_played
 
     def check_if_speaking(self) -> bool:

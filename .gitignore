@@ -1,0 +1,20 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# personality_core (upstream GLaDOS clone)
+personality_core/.venv/
+personality_core/venv/
+personality_core/.uv/
+personality_core/models/
+personality_core/**/__pycache__/
+personality_core/*.egg-info/
+personality_core/.pytest_cache/
+personality_core/.ruff_cache/

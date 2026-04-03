@@ -116,7 +116,49 @@ For FPS: lower capture size and/or detection cost (see `CAMERA_WIDTH/HEIGHT`, `D
 
 ---
 
-## 7. Tests
+## 7. Personality core (voice / LLM)
+
+This repo includes **[dnhkng/GLaDOS](https://github.com/dnhkng/GLaDOS)** as **`personality_core/`** (mic, ASR, TTS, Ollama). It does **not** share code with `glados_arm/`; arm motion is unchanged.
+
+### Raspberry Pi 5 (recommended path)
+
+1. **Pull this repo on the Pi** (or copy `personality_core/` + `configs/` + `scripts/install_personality_pi.sh`).
+
+2. **One-shot installer** (APT + `uv` + upstream `scripts/install.py` + model download):
+
+```bash
+cd /path/to/GLaDOS_Arm   # repo root containing personality_core/
+chmod +x scripts/install_personality_pi.sh
+./scripts/install_personality_pi.sh
+```
+
+3. **Install Ollama** for Linux ARM64 from [ollama.com/download](https://ollama.com/download/linux), then:
+
+```bash
+ollama pull llama3.2:1b
+# Usually: sudo systemctl enable --now ollama   (or run `ollama serve` in another terminal)
+```
+
+4. **Run GLaDOS** with the potato config:
+
+```bash
+cd personality_core
+uv run glados start --config ../configs/pi_potato.yaml --input-mode audio
+```
+
+5. **Audio devices**: if capture/playback pick the wrong hardware, list devices with `arecord -l` and `aplay -l`, then set the default ALSA/PipeWire device for your USB mic and amp/speaker.
+
+**Notes**
+
+- Pi-focused config: [`configs/pi_potato.yaml`](configs/pi_potato.yaml) (potato persona, `llama3.2:1b`, autonomy off, lean MCP). Change `llm_model` if you use another Ollama tag.
+- The upstream installer uses **CPU ONNX** on Pi (no NVIDIA). First run downloads ASR/VAD/TTS assets; allow time and disk space.
+- Do **not** enable FastVLM / heavy vision in GLaDOS on Pi until you profile CPU/RAM; use Picamera2 face tracking under **§6** for the arm.
+
+**Manual install** (if you skip the script): `sudo apt install -y libportaudio2 portaudio19-dev build-essential python3 python3-venv`, install `uv`, then `cd personality_core && python3 scripts/install.py`.
+
+---
+
+## 8. Tests
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py"
@@ -124,7 +166,7 @@ python -m unittest discover -s tests -p "test_*.py"
 
 ---
 
-## 8. Validation workflow (staged)
+## 9. Validation workflow (staged)
 
 1. **Servos**: `serial neutral`, then sweep **one joint at a time** with `SET_SERVO` (keep others at neutral).
 2. **Mapping**: `model-to-servo` / `servo-to-model` CLI; confirm directions (base L/R, shoulder up/down, elbow inversion, wrist).
@@ -134,12 +176,12 @@ python -m unittest discover -s tests -p "test_*.py"
 
 ---
 
-## 9. What still needs physical calibration
+## 10. What still needs physical calibration
 
 See **`CALIBRATION.md`** for the checklist (link lengths are already filled; **theta references**, **signs**, and **vision scaling** are not).
 
 ---
 
-## 10. Serial protocol note
+## 11. Serial protocol note
 
 Python is the source of truth for **`AIM_*`** style math. The Arduino sketch intentionally focuses on **`SET_SERVO`** execution. Add a thin Python wrapper if you want `AIM_AZ_EL` as a **CLI string** — it should compute IK and send `SET_SERVO` only.

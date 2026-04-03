@@ -120,6 +120,15 @@ For FPS: lower capture size and/or detection cost (see `CAMERA_WIDTH/HEIGHT`, `D
 
 This repo includes **[dnhkng/GLaDOS](https://github.com/dnhkng/GLaDOS)** as **`personality_core/`** (mic, ASR, TTS, Ollama). It does **not** share code with `glados_arm/`; arm motion is unchanged.
 
+**Where this repo lives (examples):**
+
+| Machine | Path |
+|--------|------|
+| Raspberry Pi (this project) | `/home/nicopi/Documents/Cursor/GLaDOS_Arm/` |
+| Windows (development) | `C:\Users\pc\Documents\GLaDOS\GLaDOS_Arm\` |
+
+Use your own username if different; on the Pi, `cd` to the repo root before running the scripts below.
+
 ### Raspberry Pi 5 (recommended path)
 
 1. **Pull this repo on the Pi** (or copy `personality_core/` + `configs/` + `scripts/install_personality_pi.sh`).
@@ -127,7 +136,7 @@ This repo includes **[dnhkng/GLaDOS](https://github.com/dnhkng/GLaDOS)** as **`p
 2. **One-shot installer** (APT + `uv` + upstream `scripts/install.py` + model download):
 
 ```bash
-cd /path/to/GLaDOS_Arm   # repo root containing personality_core/
+cd /home/nicopi/Documents/Cursor/GLaDOS_Arm   # repo root containing personality_core/
 chmod +x scripts/install_personality_pi.sh
 ./scripts/install_personality_pi.sh
 ```
@@ -172,6 +181,8 @@ You can also set the system default with `arecord -l` / `aplay -l` and PipeWire/
 - Do **not** enable FastVLM / heavy vision in GLaDOS on Pi until you profile CPU/RAM; use Picamera2 face tracking under **§6** for the arm.
 
 **Manual install** (if you skip the script): `sudo apt install -y libportaudio2 portaudio19-dev build-essential python3 python3-venv`, install `uv`, then `cd personality_core && python3 scripts/install.py`.
+
+**Smoke test** (after install + Ollama optional): from repo root, `chmod +x scripts/smoke_test_personality.sh && ./scripts/smoke_test_personality.sh` — loads [`configs/pi_potato.yaml`](configs/pi_potato.yaml), checks `glados --help`, probes Ollama on `:11434`.
 
 ---
 

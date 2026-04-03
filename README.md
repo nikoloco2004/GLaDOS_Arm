@@ -176,14 +176,16 @@ bash scripts/setup_ollama_pi.sh
 
 Or install manually from [ollama.com/download/linux](https://ollama.com/download/linux), then `ollama pull qwen2.5:0.5b` (default “Nokia mode” in [`configs/pi_potato.yaml`](configs/pi_potato.yaml); use `llama3.2:1b` instead if you want smarter but slower replies—edit `llm_model` to match).
 
-4. **Run GLaDOS** with the potato config:
+4. **Run GLaDOS** with the potato config (plain terminal — logs to stdout; use `tee` for a file):
 
 ```bash
 cd /home/nicopi/Documents/Cursor/GLaDOS_Arm
 source scripts/pi_env.sh
 cd personality_core
-uv run glados start --config ../configs/pi_potato.yaml --input-mode audio
+uv run glados start --config ../configs/pi_potato.yaml --input-mode both 2>&1 | tee ~/glados.log
 ```
+
+Use `--input-mode audio` for voice only. Use `glados tui` only if you want the full-screen UI.
 
 5. **Audio devices** (USB mic + amp/speaker): GLaDOS uses PortAudio via `sounddevice`. List devices and defaults:
 

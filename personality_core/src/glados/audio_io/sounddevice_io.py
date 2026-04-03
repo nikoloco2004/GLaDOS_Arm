@@ -284,17 +284,15 @@ class SoundDeviceAudioIO:
             finally:
                 self.input_stream = None
 
-    def start_speaking(self, audio_data: NDArray[np.float32], sample_rate: int | None = None, text: str = "") -> None:
-        """Play audio through the system speakers.
+    def start_speaking(self, audio_data: NDArray[np.float32], sample_rate: int | None = None, text: str = "") -> tuple[bool, int]:
+        """Play audio through the system speakers and block until it finishes or is stopped.
 
-        Parameters:
-            audio_data: The audio data to play as a numpy float32 array
-            sample_rate: The sample rate of the audio data in Hz
-            text: Optional text associated with the audio (not used by this implementation)
+        ``sounddevice.play`` is non-blocking; we ``wait()`` so the next queued sentence
+        cannot call ``stop_speaking()`` while this clip is still playing (which was cutting off audio).
 
-        Raises:
-            RuntimeError: If audio playback cannot be initiated
-            ValueError: If audio_data is empty or not a valid numpy array
+        Returns:
+            (interrupted, percentage_played): ``interrupted`` is True if ``stop_speaking()`` was used
+            mid-play; percentage is a rough estimate for clipping (100 if completed).
         """
         if not isinstance(audio_data, np.ndarray) or audio_data.size == 0:
             raise ValueError("Invalid audio data")
@@ -323,6 +321,12 @@ class SoundDeviceAudioIO:
         if self._output_device is not None:
             play_kw["device"] = self._output_device
         sd.play(play_data, out_sr, **play_kw)
+        sd.wait()
+        interrupted = self._stop_event.is_set()
+        if not interrupted:
+            self._is_playing = False
+        percentage_played = 50 if interrupted else 100
+        return interrupted, percentage_played
 
     def _resolve_output_samplerate(self) -> float:
         """Pick a rate ALSA accepts; cache result. Override: GLADOS_AUDIO_OUTPUT_SR=48000."""

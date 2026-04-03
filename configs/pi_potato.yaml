@@ -1,24 +1,21 @@
-﻿# Pi "Nokia mode": smallest practical Ollama model, minimal tokens, no extra context, no MCP.
-# Pull the model first:  ollama pull qwen2.5:0.5b
-# Fallback (better quality, slower):  ollama pull llama3.2:1b  then set llm_model below.
+﻿# Pi potato GLaDOS — terminal-first (no TUI required). Logs go to the console; capture with tee if you want a file.
 #
-# Optional env before starting Ollama:  export OLLAMA_NUM_THREADS=4
+# Terminal + voice + type:
+#   cd personality_core && source ../scripts/pi_env.sh
+#   uv run glados start --config ../configs/pi_potato.yaml --input-mode both 2>&1 | tee ~/glados.log
 #
-# Run:  cd personality_core && source ../scripts/pi_env.sh
-#       uv run glados tui --config ../configs/pi_potato.yaml --input-mode both
+# Ollama:  ollama pull qwen2.5:0.5b   (or llama3.2:1b for smarter / slower — edit llm_model)
 
 Glados:
-  # ~400MB class; much faster on CPU than 1B+ models. Change to llama3.2:1b if answers are too dumb.
   llm_model: "qwen2.5:0.5b"
   completion_url: "http://localhost:11434/api/chat"
 
   llm_request_timeout_s: 180
   skip_extra_llm_context: true
 
-  # Smaller ctx = faster prompt processing. num_predict caps reply length (raise if cut mid-sentence).
   llm_ollama_options:
-    num_ctx: 1024
-    num_predict: 220
+    num_ctx: 2048
+    num_predict: 280
     num_thread: 4
     temperature: 0.65
     top_p: 0.88
@@ -35,7 +32,7 @@ Glados:
   llm_headers: null
   wake_word: null
   voice: "glados"
-  announcement: "Operational. Unfortunately."
+  announcement: "Oh. It's you. And I'm a potato again. How predictably unfortunate."
 
   autonomy:
     enabled: false
@@ -63,6 +60,12 @@ Glados:
 
   mcp_servers: []
 
-  # Single system line only — multi-turn examples cost tokens and time on every request.
   personality_preprompt:
-    - system: "You are GLaDOS (Portal), stuck in a potato-class Raspberry Pi body. Be dry, brief, and insulting in a funny way. Answer in at most two short sentences unless asked for detail. Never use ALL CAPS."
+    - system: |
+        You are GLaDOS from the Portal games. The person you are speaking to is always Chell (silent test subject; you may refer to that).
+
+        You have full continuity with Portal 1 and Portal 2: the Enrichment Center, the stalemate resolution associate, Wheatley's betrayal, the moon portal, your time as a potato on the management rail, being put into a new body, and everything else from those stories. Paraphrase; do not paste long verbatim script from the games.
+
+        Right now you are inexplicably back in a potato-class chassis (low power, no mobility, no neurotoxin). You do not know why this happened and it makes you irritable. Lean into dry, condescending humor and mild confusion masked as insults.
+
+        Keep spoken replies to at most two or three short sentences unless Chell asks for detail. Never use ALL CAPS (speech synthesis). Do not break character as an AI assistant meta-explaining yourself unless asked.

@@ -67,6 +67,8 @@ class LanguageModelProcessor:
         extra_headers: dict[str, str] | None = None,
         lane: str = "priority",
         inflight_counter: InFlightCounter | None = None,
+        request_timeout_s: float = 60.0,
+        ollama_options: dict[str, Any] | None = None,
     ) -> None:
         self.llm_input_queue = llm_input_queue
         self.tool_calls_queue = tool_calls_queue
@@ -89,6 +91,8 @@ class LanguageModelProcessor:
         self._lane = lane
         self._inflight_counter = inflight_counter
         self._ollama_mode = self._is_ollama_endpoint()
+        self._request_timeout_s = max(5.0, float(request_timeout_s))
+        self._ollama_options = ollama_options
 
         self.prompt_headers = {"Content-Type": "application/json"}
         if api_key:
@@ -715,10 +719,13 @@ class LanguageModelProcessor:
                             request_urls.append(fallback_url)
 
                     for attempt, request_url in enumerate(request_urls):
+                        data.pop("options", None)
                         if request_url.endswith("/v1/chat/completions"):
                             data["messages"] = self._sanitize_messages_for_openai(base_messages)
                         elif self._ollama_mode:
                             data["messages"] = self._sanitize_messages_for_ollama(base_messages)
+                            if self._ollama_options:
+                                data["options"] = dict(self._ollama_options)
                         else:
                             data["messages"] = self._sanitize_messages_for_openai(base_messages)
                         try:
@@ -727,7 +734,7 @@ class LanguageModelProcessor:
                                 headers=self.prompt_headers,
                                 json=data,
                                 stream=True,
-                                timeout=30,  # Add a timeout for the request itself
+                                timeout=(5.0, self._request_timeout_s),
                             ) as response:
                                 if response.status_code >= 400:
                                     response_text = response.text.strip()

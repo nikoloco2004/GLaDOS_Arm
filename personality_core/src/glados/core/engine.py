@@ -119,6 +119,9 @@ class GladosConfig(BaseModel):
     personality_preprompt: list[PersonalityPrompt]
     slow_clap_audio_path: str = "data/slow-clap.mp3"
     tool_timeout: float = 30.0
+    llm_request_timeout_s: float = 60.0
+    llm_ollama_options: dict[str, Any] | None = None
+    skip_extra_llm_context: bool = False
     vision: VisionConfig | None = None
     autonomy: AutonomyConfig | None = None
     mcp_servers: list[MCPServerConfig] | None = None
@@ -195,6 +198,9 @@ class Glados:
         personality_preprompt: tuple[dict[str, str], ...] = DEFAULT_PERSONALITY_PREPROMPT,
         tool_config: dict[str, Any] | None = None,
         tool_timeout: float = 30.0,
+        llm_request_timeout_s: float = 60.0,
+        llm_ollama_options: dict[str, Any] | None = None,
+        skip_extra_llm_context: bool = False,
         vision_config: VisionConfig | None = None,
         autonomy_config: AutonomyConfig | None = None,
         mcp_servers: list[MCPServerConfig] | None = None,
@@ -242,6 +248,9 @@ class Glados:
         self.announcement = announcement
         self.tool_config = tool_config or {}
         self.tool_timeout = tool_timeout
+        self.llm_request_timeout_s = llm_request_timeout_s
+        self.llm_ollama_options = llm_ollama_options
+        self.skip_extra_llm_context = skip_extra_llm_context
         self.mcp_servers = mcp_servers or []
         self._conversation_store = ConversationStore(initial_messages=list(personality_preprompt))
         self.vision_config = vision_config
@@ -273,13 +282,14 @@ class Glados:
 
         # Create unified context builder for LLM context injection
         self.context_builder = ContextBuilder()
-        self.context_builder.register("preferences", self.preferences_store.as_prompt, priority=10)
-        self.context_builder.register("knowledge", lambda: self._format_knowledge(), priority=5)
-        self.context_builder.register("constitution", self.constitutional_state.get_modifiers_prompt, priority=3)
-
-        # Register long-term memory for context injection
         self.memory_context = MemoryContext()
-        self.context_builder.register("memory", self.memory_context.as_prompt, priority=7)
+        if not skip_extra_llm_context:
+            self.context_builder.register("preferences", self.preferences_store.as_prompt, priority=10)
+            self.context_builder.register("knowledge", lambda: self._format_knowledge(), priority=5)
+            self.context_builder.register("constitution", self.constitutional_state.get_modifiers_prompt, priority=3)
+            self.context_builder.register("memory", self.memory_context.as_prompt, priority=7)
+        else:
+            logger.info("skip_extra_llm_context: not injecting preferences/knowledge/memory/constitution (Pi / low-power mode).")
 
         self._command_registry, self._command_order = self._build_command_registry()
         # Initialize events for thread synchronization
@@ -413,6 +423,8 @@ class Glados:
             observability_bus=self.observability_bus,
             extra_headers=llm_headers,
             lane="priority",
+            request_timeout_s=self.llm_request_timeout_s,
+            ollama_options=self.llm_ollama_options,
         )
         self.autonomy_llm_processors: list[LanguageModelProcessor] = []
         autonomy_parallel_calls = 0
@@ -442,6 +454,8 @@ class Glados:
                     extra_headers=llm_headers,
                     lane="autonomy",
                     inflight_counter=self._autonomy_inflight,
+                    request_timeout_s=self.llm_request_timeout_s,
+                    ollama_options=self.llm_ollama_options,
                 )
             )
 
@@ -823,6 +837,9 @@ class Glados:
             personality_preprompt=tuple(config.to_chat_messages()),
             tool_config={"slow_clap_audio_path": config.slow_clap_audio_path},
             tool_timeout=config.tool_timeout,
+            llm_request_timeout_s=config.llm_request_timeout_s,
+            llm_ollama_options=config.llm_ollama_options,
+            skip_extra_llm_context=config.skip_extra_llm_context,
             vision_config=config.vision,
             autonomy_config=config.autonomy,
             mcp_servers=config.mcp_servers,

@@ -174,7 +174,7 @@ Or call `uv` by full path: `~/.local/bin/uv run glados ...`
 bash scripts/setup_ollama_pi.sh
 ```
 
-Or install manually from [ollama.com/download/linux](https://ollama.com/download/linux), then `ollama pull llama3.2:1b`. The model name must match [`configs/pi_potato.yaml`](configs/pi_potato.yaml) (`llm_model`).
+Or install manually from [ollama.com/download/linux](https://ollama.com/download/linux), then `ollama pull qwen2.5:0.5b` (default “Nokia mode” in [`configs/pi_potato.yaml`](configs/pi_potato.yaml); use `llama3.2:1b` instead if you want smarter but slower replies—edit `llm_model` to match).
 
 4. **Run GLaDOS** with the potato config:
 
@@ -222,7 +222,7 @@ You can also set the system default with `arecord -l` / `aplay -l` and PipeWire/
 
 **Notes**
 
-- Pi-focused config: [`configs/pi_potato.yaml`](configs/pi_potato.yaml) (potato persona, `llama3.2:1b`, autonomy off, lean MCP). Change `llm_model` if you use another Ollama tag.
+- Pi-focused config: [`configs/pi_potato.yaml`](configs/pi_potato.yaml) (tiny Ollama model `qwen2.5:0.5b`, minimal preprompt, `skip_extra_llm_context`, CTC ASR, no MCP). Tune `llm_model` / `llm_ollama_options` as needed.
 - The upstream installer uses **CPU ONNX** on Pi (no NVIDIA). First run downloads ASR/VAD/TTS assets; allow time and disk space.
 - Do **not** enable FastVLM / heavy vision in GLaDOS on Pi until you profile CPU/RAM; use Picamera2 face tracking under **§6** for the arm.
 

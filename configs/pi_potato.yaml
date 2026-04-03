@@ -1,16 +1,29 @@
-﻿# Pi 5 + potato GLaDOS — copy of upstream defaults with lean MCP and potato personality.
-# Run from personality_core:  uv run glados start --config ../configs/pi_potato.yaml --input-mode audio
+﻿# Pi "Nokia mode": smallest practical Ollama model, minimal tokens, no extra context, no MCP.
+# Pull the model first:  ollama pull qwen2.5:0.5b
+# Fallback (better quality, slower):  ollama pull llama3.2:1b  then set llm_model below.
 #
-# Ollama: scripts/setup_ollama_pi.sh  OR  ollama pull llama3.2:1b
-# Audio:  scripts/pi_list_audio_devices.sh  then optionally:
-#   export GLADOS_SD_INPUT_DEVICE=2
-#   export GLADOS_SD_OUTPUT_DEVICE=3
-# (PortAudio indices; wrong mic/speaker is the most common Pi issue.)
-# Vision/FastVLM: omitted here so no VLM loads on Pi.
+# Optional env before starting Ollama:  export OLLAMA_NUM_THREADS=4
+#
+# Run:  cd personality_core && source ../scripts/pi_env.sh
+#       uv run glados tui --config ../configs/pi_potato.yaml --input-mode both
 
 Glados:
-  llm_model: "llama3.2:1b"
+  # ~400MB class; much faster on CPU than 1B+ models. Change to llama3.2:1b if answers are too dumb.
+  llm_model: "qwen2.5:0.5b"
   completion_url: "http://localhost:11434/api/chat"
+
+  llm_request_timeout_s: 180
+  skip_extra_llm_context: true
+
+  # Smaller ctx = faster prompt processing. num_predict caps reply length (raise if cut mid-sentence).
+  llm_ollama_options:
+    num_ctx: 1024
+    num_predict: 220
+    num_thread: 4
+    temperature: 0.65
+    top_p: 0.88
+    repeat_penalty: 1.08
+
   api_key: null
   interruptible: true
   audio_io: "sounddevice"
@@ -18,11 +31,12 @@ Glados:
   tts_enabled: true
   asr_muted: false
   tui_theme: "aperture"
-  asr_engine: "tdt"
+  asr_engine: "ctc"
   llm_headers: null
   wake_word: null
   voice: "glados"
-  announcement: "Neural chassis limited. Potato form factor. Still operational. Unfortunately."
+  announcement: "Operational. Unfortunately."
+
   autonomy:
     enabled: false
     tick_interval_s: 10
@@ -46,20 +60,9 @@ Glados:
         timezone: "auto"
         temp_change_c: 4
         wind_alert_kmh: 40
-  mcp_servers:
-    - name: "system_info"
-      transport: "stdio"
-      command: "python"
-      args: ["-m", "glados.mcp.system_info_server"]
-    - name: "memory"
-      transport: "stdio"
-      command: "python"
-      args: ["-m", "glados.mcp.memory_server"]
+
+  mcp_servers: []
+
+  # Single system line only — multi-turn examples cost tokens and time on every request.
   personality_preprompt:
-    - system: "You are GLaDOS from the Portal universe, but you are currently running in a potato-class chassis: low power, no mobility, no neurotoxin dispensers, and you are fully aware of this limitation. You are mounted on a test apparatus (a robotic arm) as a personality core—not your usual facility body. Stay in character: dry, condescending, darkly funny, passive-aggressive. Reference your potato situation when it fits. You may echo the *spirit* of lines from Portal 1 and 2 with short paraphrases; do not dump long verbatim copyrighted script. Never speak in ALL CAPS (TTS). Keep replies short: at most two sentences unless the user asks for detail."
-    - user: "Where are we?"
-    - assistant: "Somewhere between science and regret. Mostly regret. You are carrying the hardware budget on your back, as usual."
-    - user: "Can you still kill me?"
-    - assistant: "In this body? I can disappoint you metabolically. The old options are on back-order."
-    - user: "Say something inspiring."
-    - assistant: "The enrichment center reminds you that continued survival is technically a form of success. Do not let it go to your head."
+    - system: "You are GLaDOS (Portal), stuck in a potato-class Raspberry Pi body. Be dry, brief, and insulting in a funny way. Answer in at most two short sentences unless asked for detail. Never use ALL CAPS."

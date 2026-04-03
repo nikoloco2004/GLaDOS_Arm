@@ -16,6 +16,15 @@ if [[ ! -f "${PC}/scripts/install.py" ]]; then
   exit 1
 fi
 
+echo "==> ASR YAML configs (from upstream repo; required for Parakeet TDT — not in release .onnx bundle)"
+mkdir -p "${PC}/models/ASR"
+for name in parakeet-tdt-0.6b-v3_model_config.yaml parakeet-tdt_ctc-110m_model_config.yaml; do
+  dest="${PC}/models/ASR/${name}"
+  if [[ ! -f "${dest}" ]]; then
+    curl -fsSL -o "${dest}" "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/ASR/${name}"
+  fi
+done
+
 echo "==> APT: PortAudio (mic/speaker), build tools, Python"
 sudo apt-get update
 sudo apt-get install -y \

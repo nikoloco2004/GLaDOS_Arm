@@ -23,6 +23,15 @@ DEFAULT_CONFIG = resource_path("configs/glados_config.yaml")
 
 # Details of all the models.  Each key is the file path where the model should be saved
 MODEL_DETAILS: dict[FileName, dict[FileURL, FileHash]] = {
+    # NeMo YAML configs live in the upstream repo (not the release asset bundle); required for TDT/CTC ASR.
+    "models/ASR/parakeet-tdt-0.6b-v3_model_config.yaml": {
+        "url": "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/ASR/parakeet-tdt-0.6b-v3_model_config.yaml",
+        "checksum": "9e11e5e768d30dd6c66f9db2278fc047508022f3032d97a1fff6763656db94be",
+    },
+    "models/ASR/parakeet-tdt_ctc-110m_model_config.yaml": {
+        "url": "https://raw.githubusercontent.com/dnhkng/GLaDOS/main/models/ASR/parakeet-tdt_ctc-110m_model_config.yaml",
+        "checksum": "ff1bdcf42c704d712a1d1c42e76f3fdedcbc17139bd03062c3c7f08782f86023",
+    },
     "models/ASR/nemo-parakeet_tdt_ctc_110m.onnx": {
         "url": "https://github.com/dnhkng/GlaDOS/releases/download/0.1/nemo-parakeet_tdt_ctc_110m.onnx",
         "checksum": "313705ff6f897696ddbe0d92b5ffadad7429a47d2ddeef370e6f59248b1e8fb5",

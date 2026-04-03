@@ -214,6 +214,7 @@ You can also set the system default with `arecord -l` / `aplay -l` and PipeWire/
 | Scripts ran but new shell lost `uv` | `source ~/.bashrc` or `source scripts/pi_env.sh` |
 | `git pull` refuses (local changes / untracked files) | See **Pi: fixing a messy `git pull`** below. |
 | `Unable to locate package libportaudio2-dev` | Fixed in current `install_personality_pi.sh` (use `portaudio19-dev` only). `git pull` and re-run `bash scripts/install_personality_pi.sh`. |
+| `parakeet-tdt-0.6b-v3_model_config.yaml` not found | ASR YAML files ship in [upstream `models/ASR/`](https://github.com/dnhkng/GLaDOS/tree/main/models/ASR), not with ONNX downloads. Run `bash scripts/install_personality_pi.sh` (curls them) **or** `cd personality_core && source ../scripts/pi_env.sh && uv run glados download` after pulling the fix. |
 
 **Notes**
 

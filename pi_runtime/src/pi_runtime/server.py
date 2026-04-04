@@ -6,6 +6,7 @@ import asyncio
 import base64
 import logging
 import os
+import queue
 import socket
 import sys
 import threading
@@ -64,6 +65,11 @@ def _mic_uplink_enabled() -> bool:
     )
 
 
+def _mic_stream_enabled() -> bool:
+    """Continuous Silero VAD → utterance clips → user_audio_pcm (requires personality_core on Pi)."""
+    return os.environ.get("PI_MIC_MODE", "").strip().lower() == "stream"
+
+
 async def _handler(ws: WebSocketServerProtocol) -> None:
     peer = ws.remote_address
     log.info("brain connected: %s", peer)
@@ -72,6 +78,8 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
 
     host = socket.gethostname()
     caps = ["stub_commands", "heartbeat", "voice_loop", "voice_interrupt", "mic_uplink"]
+    if _mic_stream_enabled() and _mic_uplink_enabled():
+        caps.append("mic_stream_vad")
     hello = Envelope(
         type="hello",
         payload=HelloPayload(hostname=host, capabilities=caps).to_dict(),
@@ -198,6 +206,71 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
         else:
             log.info("voice loop: type lines on this terminal → user_text (Ctrl+D to stop stdin)")
 
+    stream_stop = threading.Event()
+    utterance_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=32)
+    vad_thread: threading.Thread | None = None
+    vad_task: asyncio.Task[None] | None = None
+
+    if _mic_stream_enabled() and _mic_uplink_enabled():
+        try:
+            from .mic_stream_vad import run_vad_stream_thread, vad_stream_available
+
+            if vad_stream_available():
+                vad_thread = threading.Thread(
+                    target=run_vad_stream_thread,
+                    args=(utterance_q, stream_stop),
+                    name="pi-vad-mic",
+                    daemon=True,
+                )
+                vad_thread.start()
+
+                async def vad_utterance_uplink() -> None:
+                    sr_16k = 16000
+
+                    def _get_utt() -> np.ndarray:
+                        return utterance_q.get(timeout=0.5)
+
+                    while not stream_stop.is_set():
+                        try:
+                            samples = await asyncio.to_thread(_get_utt)
+                        except queue.Empty:
+                            continue
+                        await stdin_interrupt_and_stop_playback()
+                        raw = base64.b64encode(
+                            np.asarray(samples, dtype=np.float32).tobytes()
+                        ).decode("ascii")
+                        cid = str(time.time())
+                        env = Envelope(
+                            type="user_audio_pcm",
+                            payload=UserAudioPcmPayload(
+                                pcm_b64=raw,
+                                sample_rate=sr_16k,
+                                correlation_id=cid,
+                            ).to_dict(),
+                        )
+                        try:
+                            await ws.send(env.to_json())
+                            log.info(
+                                "pi → brain user_audio_pcm (VAD): %d samples @ %d Hz",
+                                samples.size,
+                                sr_16k,
+                            )
+                        except Exception as e:
+                            log.warning("send user_audio_pcm (VAD) failed: %s", e)
+                            break
+
+                vad_task = asyncio.create_task(vad_utterance_uplink())
+                log.info(
+                    "Pi mic stream: Silero VAD → utterances → user_audio_pcm (set PI_MIC_MODE=stream off to use only %s)",
+                    os.environ.get("PI_MIC_COMMAND", "/mic"),
+                )
+            else:
+                log.warning(
+                    "PI_MIC_MODE=stream but VAD model missing; install personality_core on Pi and run: python -m glados.cli download"
+                )
+        except Exception as e:
+            log.warning("VAD mic stream not started: %s", e)
+
     try:
         async for raw in ws:
             watchdog.on_brain_message()
@@ -315,6 +388,15 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                 log.debug("ignored type=%s", env.type)
 
     finally:
+        stream_stop.set()
+        if vad_task:
+            vad_task.cancel()
+            try:
+                await vad_task
+            except asyncio.CancelledError:
+                pass
+        if vad_thread and vad_thread.is_alive():
+            vad_thread.join(timeout=3.0)
         hb_task.cancel()
         try:
             await hb_task

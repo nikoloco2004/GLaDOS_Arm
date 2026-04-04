@@ -327,8 +327,110 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
         except Exception as e:
             log.warning("VAD mic stream not started: %s", e)
 
-    # Inbound queue so we can process interrupt_playback while tts_pcm blocks in a thread (async for ws would stall).
+    # Inbound queue + non-blocking TTS: recv and dispatch must not await playback or interrupt_playback stays queued.
     in_q: asyncio.Queue[str | None] = asyncio.Queue(maxsize=256)
+    tts_playback_tasks: set[asyncio.Task[None]] = set()
+
+    def _track_tts_task(t: asyncio.Task[None]) -> None:
+        tts_playback_tasks.add(t)
+
+        def _done(_t: asyncio.Task[None]) -> None:
+            tts_playback_tasks.discard(_t)
+
+        t.add_done_callback(_done)
+
+    async def _play_tts_pcm_async(env: Envelope) -> None:
+        """Run heavy playback off the dispatch loop so interrupt_playback + heartbeat_ack are handled while audio plays."""
+        p = env.payload
+        try:
+            payload = TtsPcmPayload(
+                pcm_b64=str(p.get("pcm_b64", "")),
+                sample_rate=int(p.get("sample_rate", 22050)),
+                text=str(p.get("text", "")),
+                correlation_id=str(p.get("correlation_id", "")),
+            )
+            samples = pcm_b64_to_numpy(payload.pcm_b64)
+            request_playback_stop()
+            stop_ev = threading.Event()
+            playback["stop"] = stop_ev
+            playback["cid"] = payload.correlation_id
+            playback["text"] = payload.text
+            done_ev = threading.Event()
+            vad_barge = vad_task is not None
+            if vad_barge:
+                from .mic_stream_vad import (
+                    duplex_voice_during_tts,
+                    set_barge_in_target,
+                    set_playback_playing,
+                )
+
+                if duplex_voice_during_tts():
+                    set_barge_in_target(stop_ev)
+                else:
+                    set_playback_playing(True)
+            mic_thread = threading.Thread(
+                target=mic_interrupt_monitor,
+                args=(stop_ev, done_ev),
+                name="pi-mic-interrupt",
+                daemon=True,
+            )
+            mic_thread.start()
+            interrupted = False
+            stdin_already_sent = False
+            playback_active.set()
+            try:
+                interrupted = await asyncio.to_thread(
+                    play_float32_mono_interruptible,
+                    samples,
+                    float(payload.sample_rate),
+                    stop_ev,
+                )
+            finally:
+                playback_active.clear()
+                if vad_barge:
+                    from .mic_stream_vad import (
+                        duplex_voice_during_tts,
+                        set_barge_in_target,
+                        set_playback_playing,
+                    )
+
+                    if duplex_voice_during_tts():
+                        set_barge_in_target(None)
+                    else:
+                        set_playback_playing(False)
+                done_ev.set()
+                mic_thread.join(timeout=2.0)
+                if playback["stop"] is stop_ev:
+                    stdin_already_sent = bool(playback.get("stdin_skip"))
+                    playback["stop"] = None
+                    playback["cid"] = ""
+                    playback["text"] = ""
+                    playback["stdin_skip"] = False
+
+            if interrupted:
+                log.info("tts_pcm interrupted (stdin, mic, or overlapping clip)")
+                if not stdin_already_sent:
+                    try:
+                        ui = Envelope(
+                            type="user_interrupt",
+                            payload=UserInterruptPayload(
+                                correlation_id=payload.correlation_id,
+                                full_intended_output=payload.text,
+                            ).to_dict(),
+                        )
+                        await ws.send(ui.to_json())
+                    except Exception as send_e:
+                        log.warning("send user_interrupt failed: %s", send_e)
+
+            log.info(
+                "played tts_pcm: %d samples @ %d Hz (%s)%s",
+                samples.size,
+                payload.sample_rate,
+                payload.text[:80],
+                " [interrupted]" if interrupted else "",
+            )
+        except Exception as e:
+            log.exception("tts_pcm playback failed: %s", e)
 
     async def _pump_ws_inbound() -> None:
         try:
@@ -367,97 +469,8 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
                 continue
 
             if env.type == "tts_pcm":
-                p = env.payload
-                try:
-                    payload = TtsPcmPayload(
-                        pcm_b64=str(p.get("pcm_b64", "")),
-                        sample_rate=int(p.get("sample_rate", 22050)),
-                        text=str(p.get("text", "")),
-                        correlation_id=str(p.get("correlation_id", "")),
-                    )
-                    samples = pcm_b64_to_numpy(payload.pcm_b64)
-                    # Stop any clip already playing (e.g. user typed again before this frame arrived).
-                    request_playback_stop()
-                    stop_ev = threading.Event()
-                    playback["stop"] = stop_ev
-                    playback["cid"] = payload.correlation_id
-                    playback["text"] = payload.text
-                    done_ev = threading.Event()
-                    vad_barge = vad_task is not None
-                    if vad_barge:
-                        from .mic_stream_vad import (
-                            duplex_voice_during_tts,
-                            set_barge_in_target,
-                            set_playback_playing,
-                        )
-
-                        if duplex_voice_during_tts():
-                            set_barge_in_target(stop_ev)
-                        else:
-                            set_playback_playing(True)
-                    mic_thread = threading.Thread(
-                        target=mic_interrupt_monitor,
-                        args=(stop_ev, done_ev),
-                        name="pi-mic-interrupt",
-                        daemon=True,
-                    )
-                    mic_thread.start()
-                    interrupted = False
-                    stdin_already_sent = False
-                    playback_active.set()
-                    try:
-                        interrupted = await asyncio.to_thread(
-                            play_float32_mono_interruptible,
-                            samples,
-                            float(payload.sample_rate),
-                            stop_ev,
-                        )
-                    finally:
-                        playback_active.clear()
-                        if vad_barge:
-                            from .mic_stream_vad import (
-                                duplex_voice_during_tts,
-                                set_barge_in_target,
-                                set_playback_playing,
-                            )
-
-                            if duplex_voice_during_tts():
-                                set_barge_in_target(None)
-                            else:
-                                set_playback_playing(False)
-                        done_ev.set()
-                        mic_thread.join(timeout=2.0)
-                        if playback["stop"] is stop_ev:
-                            stdin_already_sent = bool(playback.get("stdin_skip"))
-                            playback["stop"] = None
-                            playback["cid"] = ""
-                            playback["text"] = ""
-                            playback["stdin_skip"] = False
-
-                    if interrupted:
-                        log.info("tts_pcm interrupted (stdin, mic, or overlapping clip)")
-                        if not stdin_already_sent:
-                            try:
-                                ui = Envelope(
-                                    type="user_interrupt",
-                                    payload=UserInterruptPayload(
-                                        correlation_id=payload.correlation_id,
-                                        full_intended_output=payload.text,
-                                    ).to_dict(),
-                                )
-                                await ws.send(ui.to_json())
-                            except Exception as send_e:
-                                log.warning("send user_interrupt failed: %s", send_e)
-
-                    log.info(
-                        "played tts_pcm: %d samples @ %d Hz (%s)%s",
-                        samples.size,
-                        payload.sample_rate,
-                        payload.text[:80],
-                        " [interrupted]" if interrupted else "",
-                    )
-                except Exception as e:
-                    log.exception("tts_pcm playback failed: %s", e)
+                t = asyncio.create_task(_play_tts_pcm_async(env))
+                _track_tts_task(t)
                 continue
 
             if env.type == "command":
@@ -512,6 +525,13 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
                 log.debug("ignored type=%s", env.type)
 
     finally:
+        for pt in list(tts_playback_tasks):
+            pt.cancel()
+        for pt in list(tts_playback_tasks):
+            try:
+                await pt
+            except asyncio.CancelledError:
+                pass
         pump.cancel()
         try:
             await pump

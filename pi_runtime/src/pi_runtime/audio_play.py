@@ -45,21 +45,62 @@ def _output_dev() -> int:
     return int(sd.default.device[1])
 
 
+def _portaudio_num_devices() -> int:
+    try:
+        d = sd.query_devices()
+        if isinstance(d, np.ndarray):
+            return int(d.shape[0])
+        if isinstance(d, (list, tuple)):
+            return len(d)
+        return len(d)
+    except Exception:
+        return 0
+
+
 def _enumerate_output_devices() -> list[int]:
-    """Indices with max_output_channels > 0. If env fixes a device, only that index. Else default-out first."""
+    """Output device indices for TTS. Prefer PortAudio's kind=output; fall back if hosts mis-report channels."""
     fixed = _env_output_device()
     if fixed is not None:
         return [fixed]
+
     found: list[int] = []
+
+    # 1) sounddevice can list output-only indices (most reliable on PipeWire/Pulse/Bluetooth).
     try:
-        n = len(sd.query_devices())
-        for i in range(n):
-            info = sd.query_devices(i)
-            if int(info.get("max_output_channels") or 0) > 0:
-                found.append(i)
+        out = sd.query_devices(kind="output")
+        if out is not None:
+            if isinstance(out, np.ndarray):
+                out = out.tolist()
+            for x in out:
+                if isinstance(x, (int, np.integer)):
+                    found.append(int(x))
+                elif isinstance(x, dict):
+                    # Some versions return device dicts; skip (handled by scan below).
+                    pass
     except Exception as e:
-        log.warning("enumerate output devices failed: %s", e)
-        return []
+        log.debug("query_devices(kind=output): %s", e)
+
+    # 2) Scan by max_output_channels (ALSA/USB).
+    if not found:
+        try:
+            n = _portaudio_num_devices()
+            for i in range(n):
+                info = sd.query_devices(i)
+                if int(info.get("max_output_channels") or 0) > 0:
+                    found.append(i)
+        except Exception as e:
+            log.warning("enumerate output devices (scan): %s", e)
+
+    # 3) Some Pulse/Bluetooth nodes report 0 output channels; try every index and let probe decide.
+    if not found:
+        n = _portaudio_num_devices()
+        if n > 0:
+            found = list(range(n))
+            log.warning(
+                "No devices with max_output_channels>0; trying all %d PortAudio indices (Bluetooth/Pulse quirk)",
+                n,
+            )
+
     try:
         def_pair = sd.default.device
         if isinstance(def_pair, (tuple, list, np.ndarray)) and len(def_pair) >= 2:
@@ -156,8 +197,14 @@ def resolve_output_samplerate() -> float:
 
     devices = _enumerate_output_devices()
     if not devices:
+        if _portaudio_num_devices() == 0:
+            raise RuntimeError(
+                "PortAudio reports zero audio devices (check PipeWire/ALSA; pi needs sounddevice + working audio stack)."
+            )
         raise RuntimeError(
-            "No PortAudio output devices found. Pair Bluetooth, pick a default sink in the OS, then retry."
+            "No output device could be probed. Use venv Python to list devices: "
+            "./.venv/bin/python -c \"import sounddevice as sd; print(sd.query_devices()); print(sd.default.device)\" "
+            "then export GLADOS_SD_OUTPUT_DEVICE=<index> (and PI_AUDIO_OUTPUT_SR=48000 if needed)."
         )
 
     for device in devices:

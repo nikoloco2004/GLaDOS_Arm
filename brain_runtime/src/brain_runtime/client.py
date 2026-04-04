@@ -66,6 +66,15 @@ class BrainClient:
                     log.info("pi → user_interrupt (barge-in) cid=%s", p.get("correlation_id"))
                     pipeline.append_interrupt_context(full_out)
                     continue
+
+                if env.type == "user_audio_pcm":
+                    p = env.payload
+                    pcm = str(p.get("pcm_b64", ""))
+                    sr = int(p.get("sample_rate", 16000))
+                    cid = str(p.get("correlation_id", ""))
+                    if pcm:
+                        await pipeline.handle_user_audio_pcm(ws, pcm, sr, cid)
+                    continue
         finally:
             keepalive.cancel()
             try:

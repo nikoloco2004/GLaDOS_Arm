@@ -27,4 +27,6 @@ Full laptop/desktop setup and hotswap between main PC and laptop: [`docs/LAPTOP_
 
 **Pi keyboard → PC brain → Pi speaker:** [`docs/VOICE_LOOP_PI_PC.md`](../docs/VOICE_LOOP_PI_PC.md) (requires `personality_core` + Ollama on the PC). Default LLM is **`llama3.2`** with sliding-window chat history (same idea as full `glados`).
 
+**Pi mic → ASR on PC:** [`docs/VOICE_MIC_PI_PC.md`](../docs/VOICE_MIC_PI_PC.md) — type `/mic` on the Pi; requires ONNX ASR models from `glados.cli download`.
+
 Sends `ping` then `neutral` (stub on Pi).

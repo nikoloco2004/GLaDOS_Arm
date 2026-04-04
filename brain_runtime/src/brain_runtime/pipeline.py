@@ -23,7 +23,11 @@ log = logging.getLogger(__name__)
 
 _tts_model: Any = None
 _spoken_text_converter: Any = None
+_asr_model: Any = None
 _system_prompt_cache: str | None = None
+
+# Parakeet ASR expects 16 kHz mono float32 (see personality_core models/ASR/*.yaml).
+_ASR_TARGET_SR = 16000.0
 
 # Sliding window of {user, assistant} pairs so GLaDOS stays in character across turns (matches full glados stack).
 def _history_maxlen() -> int:
@@ -204,6 +208,68 @@ def _synthesize_sync(reply_text: str) -> tuple[NDArray[np.float32], int]:
     to_speak = _text_for_tts(reply_text)
     audio = tts.generate_speech_audio(to_speak)
     return audio, int(tts.sample_rate)
+
+
+def _resample_mono_linear(x: NDArray[np.float32], orig_sr: float, target_sr: float) -> NDArray[np.float32]:
+    if orig_sr == target_sr or x.size == 0:
+        return np.asarray(x, dtype=np.float32).reshape(-1)
+    a = np.asarray(x, dtype=np.float64).reshape(-1)
+    n = a.shape[0]
+    duration = n / orig_sr
+    target_n = max(1, int(round(duration * target_sr)))
+    t_old = np.linspace(0.0, duration, n, endpoint=False)
+    t_new = np.linspace(0.0, duration, target_n, endpoint=False)
+    return np.interp(t_new, t_old, a).astype(np.float32)
+
+
+def _get_asr() -> Any:
+    global _asr_model
+    if _asr_model is None:
+        try:
+            from glados.ASR import get_audio_transcriber
+        except ImportError as e:
+            raise ImportError(
+                "Pi mic → ASR requires personality_core in the same venv: "
+                "pip install -e ../personality_core (from GLaDOS_Arm)"
+            ) from e
+        engine = os.environ.get("GLADOS_ASR_ENGINE", "tdt").strip().lower()
+        _asr_model = get_audio_transcriber(engine)
+        log.info("brain pipeline: ASR engine %s", engine)
+    return _asr_model
+
+
+def transcribe_pi_pcm_sync(pcm_b64: str, sample_rate: int) -> str:
+    raw = base64.b64decode(pcm_b64.encode("ascii"))
+    samples = np.frombuffer(raw, dtype=np.float32).copy()
+    if samples.size == 0:
+        return ""
+    if abs(float(sample_rate) - _ASR_TARGET_SR) > 0.5:
+        samples = _resample_mono_linear(samples, float(sample_rate), _ASR_TARGET_SR)
+    return str(_get_asr().transcribe(samples)).strip()
+
+
+async def handle_user_audio_pcm(
+    ws: WebSocketClientProtocol,
+    pcm_b64: str,
+    sample_rate: int,
+    correlation_id: str,
+) -> None:
+    """Decode Pi mic PCM, run ASR on PC, then same LLM/TTS path as typed user_text."""
+    if not pcm_b64.strip():
+        return
+    loop = asyncio.get_event_loop()
+    try:
+        text = await loop.run_in_executor(None, transcribe_pi_pcm_sync, pcm_b64, sample_rate)
+    except Exception as e:
+        log.exception("ASR failed: %s", e)
+        text = ""
+
+    if not text.strip():
+        log.warning("ASR returned empty transcript; skipping LLM")
+        return
+
+    log.info("brain ASR: %s", text[:200])
+    await handle_user_text(ws, text, correlation_id)
 
 
 async def handle_user_text(

@@ -149,6 +149,10 @@ Vendoring: `robot_link` can be a path dependency in both `pi_runtime` and `brain
 | `actuator_result` | Pi → brain | outcome after motion |
 | `error` | either | code, message, fatal? |
 | `failsafe` | Pi → brain | reason: comm_loss, estop, watchdog |
+| `user_text` | Pi → brain | typed line → LLM on brain |
+| `user_audio_pcm` | Pi → brain | float32 mono mic clip → ASR on brain → LLM |
+| `user_interrupt` | Pi → brain | barge-in metadata (split-brain voice loop) |
+| `tts_pcm` | brain → Pi | float32 mono TTS playback |
 | `speech_audio_chunk` | phase 2 | base64 pcm or ref id |
 | `tts_downlink` | phase 2 | play this wav on Pi speaker |
 

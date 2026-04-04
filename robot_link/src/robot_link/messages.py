@@ -121,6 +121,18 @@ class UserInterruptPayload:
 
 
 @dataclass
+class UserAudioPcmPayload:
+    """Pi → brain: float32 mono mic capture; PC runs ASR then same LLM/TTS path as user_text."""
+
+    pcm_b64: str = ""
+    sample_rate: int = 16000
+    correlation_id: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class ErrorPayload:
     code: str = ""
     message: str = ""

@@ -99,5 +99,10 @@ python3 -m pi_runtime
 | `PI_INTERRUPT_RMS` | `0.028` | RMS threshold; raise if false triggers, lower if too hard to interrupt |
 | `PI_INTERRUPT_HITS` | `4` | Consecutive loud blocks required before stop |
 | `PI_INTERRUPT_BLOCKSIZE` | `512` | Input block size for RMS |
+| `PI_MIC_COMMAND` | `/mic` | Type this + Enter to record Pi mic → PC ASR (`user_audio_pcm`) |
+| `PI_MIC_SECONDS` | `5` | Seconds of mic capture per `/mic` |
+| `PI_MIC_UPLINK` | `1` | `0` to disable `/mic` (typing only) |
 
 Wire `executor.py` to `glados_arm` when ready.
+
+**Pi mic → PC brain:** [`docs/VOICE_MIC_PI_PC.md`](../docs/VOICE_MIC_PI_PC.md).

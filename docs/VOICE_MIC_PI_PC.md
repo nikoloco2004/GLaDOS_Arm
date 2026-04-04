@@ -42,6 +42,8 @@ You can still use **`/mic`** for fixed-length clips when stream mode is enabled.
 
 **ALSA / one mic handle:** Many Pi USB mics allow only **one** open capture stream. Stream mode keeps that handle for VAD, so a **second** mic open (e.g. old “voice interrupt” during TTS) fails with `Device unavailable`. In stream mode, **barge-in** reuses the same VAD stream (Silero speech frames), not a second `InputStream`.
 
+**Speaker → mic (echo):** While GLaDOS speaks, the built-in mic often hears the speaker. Silero then treats that as **speech**, which used to **interrupt TTS** and send bogus **`user_audio_pcm`** clips. **Default:** while `tts_pcm` is playing, the Pi **does not** run utterance segmentation or VAD barge-in (only advances the VAD model). After playback ends, listening resumes. To try **voice barge-in** during TTS anyway (e.g. headset, quiet room), set **`PI_STREAM_VOICE_DURING_TTS=1`** — echo may return.
+
 ## PC: requirements
 
 - Same venv as today: **`personality_core` installed editable** next to `brain_runtime` (for ASR + TTS ONNX models).
@@ -57,6 +59,7 @@ You can still use **`/mic`** for fixed-length clips when stream mode is enabled.
 | `PI_MIC_MODE` | Pi | `stream` = continuous Silero VAD → utterances; unset = push-to-talk only. |
 | `PI_MIC_STREAM_MIN_MS` | Pi | Min utterance length (default `200`) to drop noise blips. |
 | `PI_MIC_STREAM_MAX_MS` | Pi | Max utterance length (default `30000`) before force-send. |
+| `PI_STREAM_VOICE_DURING_TTS` | Pi | `1` = allow VAD segments + mic barge-in **during** TTS (headset); default **off** (avoids speaker echo). |
 | `PI_MIC_UPLINK` | Pi | Set `0` to disable mic uplink (typing only). |
 | `GLADOS_SD_INPUT_DEVICE` / `PI_SD_INPUT_DEVICE` | Pi | PortAudio **input** index for the mic. |
 | `GLADOS_ASR_ENGINE` | PC | `tdt` (default) or `ctc` — same as full Glados ASR. |

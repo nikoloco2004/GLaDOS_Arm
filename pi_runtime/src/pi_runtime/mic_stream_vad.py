@@ -33,6 +33,49 @@ _barge_stop: threading.Event | None = None
 _barge_hits = 0
 _barge_ignore_until = 0.0
 
+# While TTS plays, speaker → mic bleed looks like speech to Silero (echo). Default: gate off
+# segmentation + barge-in until playback ends. Set PI_STREAM_VOICE_DURING_TTS=1 for headset/duplex.
+_playback_active = threading.Event()
+_det_ref_lock = threading.Lock()
+_detector_ref: "_UtteranceDetector | None" = None
+
+
+def duplex_voice_during_tts() -> bool:
+    return os.environ.get("PI_STREAM_VOICE_DURING_TTS", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _playback_gate_enabled() -> bool:
+    """When True, do not segment or barge-in while Pi is playing TTS (avoids acoustic echo)."""
+    return not duplex_voice_during_tts()
+
+
+def set_detector_ref(det: "_UtteranceDetector | None") -> None:
+    global _detector_ref
+    with _det_ref_lock:
+        _detector_ref = det
+
+
+def set_playback_playing(active: bool) -> None:
+    """Called around tts_pcm playback when VAD stream is active (unless duplex mode)."""
+    with _det_ref_lock:
+        det = _detector_ref
+        if active:
+            _playback_active.set()
+        else:
+            _playback_active.clear()
+    if det is not None:
+        det._reset()
+        if not active:
+            try:
+                det._vad.reset_states()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
 
 def set_barge_in_target(stop: threading.Event | None) -> None:
     """While TTS plays, Silero speech frames can set ``stop`` (same env as PI_INTERRUPT_*)."""
@@ -155,6 +198,10 @@ class _UtteranceDetector:
     def feed_frame_16k_512(self, chunk: NDArray[np.float32]) -> NDArray[np.float32] | None:
         if chunk.size != _CHUNK:
             return None
+        if _playback_gate_enabled() and _playback_active.is_set():
+            # Keep Silero state advancing only; skip echo → ASR / self-interrupt.
+            self._vad(np.expand_dims(chunk.astype(np.float32), 0))  # type: ignore[operator]
+            return None
         vad_out = self._vad(np.expand_dims(chunk.astype(np.float32), 0))  # type: ignore[operator]
         score = float(np.asarray(vad_out).reshape(-1)[0])
         speech = score > self._threshold
@@ -244,6 +291,7 @@ def run_vad_stream_thread(
                 blocksize=blocksize,
             )
             stream.start()
+            set_detector_ref(det)
             log.info(
                 "Pi VAD stream: capture @ %.0f Hz block=%d → resampled 16 kHz / 512 for Silero",
                 sr,
@@ -258,6 +306,8 @@ def run_vad_stream_thread(
                     stream.close()
                 except Exception:
                     pass
+                set_playback_playing(False)
+                set_detector_ref(None)
             log.info("Pi VAD stream thread stopped")
             return
         except Exception as e:

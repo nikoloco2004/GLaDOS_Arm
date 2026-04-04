@@ -40,6 +40,8 @@ Set **`PI_MIC_MODE=stream`** on the Pi so the mic stays open: **Silero VAD** (sa
 
 You can still use **`/mic`** for fixed-length clips when stream mode is enabled.
 
+**ALSA / one mic handle:** Many Pi USB mics allow only **one** open capture stream. Stream mode keeps that handle for VAD, so a **second** mic open (e.g. old “voice interrupt” during TTS) fails with `Device unavailable`. In stream mode, **barge-in** reuses the same VAD stream (Silero speech frames), not a second `InputStream`.
+
 ## PC: requirements
 
 - Same venv as today: **`personality_core` installed editable** next to `brain_runtime` (for ASR + TTS ONNX models).

@@ -306,6 +306,11 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                     playback["cid"] = payload.correlation_id
                     playback["text"] = payload.text
                     done_ev = threading.Event()
+                    vad_barge = vad_task is not None
+                    if vad_barge:
+                        from .mic_stream_vad import set_barge_in_target
+
+                        set_barge_in_target(stop_ev)
                     mic_thread = threading.Thread(
                         target=mic_interrupt_monitor,
                         args=(stop_ev, done_ev),
@@ -323,6 +328,10 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                             stop_ev,
                         )
                     finally:
+                        if vad_barge:
+                            from .mic_stream_vad import set_barge_in_target
+
+                            set_barge_in_target(None)
                         done_ev.set()
                         mic_thread.join(timeout=2.0)
                         if playback["stop"] is stop_ev:

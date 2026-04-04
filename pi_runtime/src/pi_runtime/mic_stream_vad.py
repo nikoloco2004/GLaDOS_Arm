@@ -6,6 +6,7 @@ import logging
 import os
 import queue
 import threading
+import time
 from collections import deque
 
 import numpy as np
@@ -25,6 +26,40 @@ _PAUSE_MS = 640
 _VAD_THRESHOLD = 0.8
 _ASR_SR = 16000.0
 _CHUNK = 512  # 32 ms @ 16 kHz (Silero ONNX)
+
+# TTS barge-in uses the same mic stream (ALSA often allows only one capture open).
+_barge_lock = threading.Lock()
+_barge_stop: threading.Event | None = None
+_barge_hits = 0
+_barge_ignore_until = 0.0
+
+
+def set_barge_in_target(stop: threading.Event | None) -> None:
+    """While TTS plays, Silero speech frames can set ``stop`` (same env as PI_INTERRUPT_*)."""
+    global _barge_stop, _barge_hits, _barge_ignore_until
+    with _barge_lock:
+        _barge_stop = stop
+        _barge_hits = 0
+        delay_ms = float(os.environ.get("PI_INTERRUPT_DELAY_MS", "280"))
+        _barge_ignore_until = time.monotonic() + max(0.0, delay_ms / 1000.0)
+
+
+def _check_barge_in(speech: bool) -> None:
+    global _barge_hits
+    with _barge_lock:
+        st = _barge_stop
+        if st is None:
+            return
+        if time.monotonic() < _barge_ignore_until:
+            return
+        need = max(1, int(os.environ.get("PI_INTERRUPT_HITS", "4")))
+        if not speech:
+            _barge_hits = 0
+            return
+        _barge_hits += 1
+        if _barge_hits >= need:
+            st.set()
+            _barge_hits = 0
 
 
 def _resample_mono(x: NDArray[np.float32], orig_sr: float, target_sr: float) -> NDArray[np.float32]:
@@ -123,6 +158,7 @@ class _UtteranceDetector:
         vad_out = self._vad(np.expand_dims(chunk.astype(np.float32), 0))  # type: ignore[operator]
         score = float(np.asarray(vad_out).reshape(-1)[0])
         speech = score > self._threshold
+        _check_barge_in(speech)
 
         if not self._recording:
             self._pre.append(chunk.copy())

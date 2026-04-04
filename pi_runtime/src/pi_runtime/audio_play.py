@@ -162,9 +162,17 @@ def _default_input_sr() -> float:
     return 16000.0
 
 
+def _mic_stream_capture_active() -> bool:
+    """ALSA usually allows one InputStream per device; VAD stream already holds the mic."""
+    return os.environ.get("PI_MIC_MODE", "").strip().lower() == "stream"
+
+
 def mic_interrupt_monitor(stop_event: threading.Event, playback_done: threading.Event) -> None:
     """Background: open mic and set stop_event when sustained voice energy is detected."""
     if not _voice_interrupt_enabled():
+        return
+    if _mic_stream_capture_active():
+        # Barge-in is driven by Silero in mic_stream_vad (set_barge_in_target); second capture fails with -9985.
         return
     delay_ms = float(os.environ.get("PI_INTERRUPT_DELAY_MS", "280"))
     time.sleep(max(0.0, delay_ms / 1000.0))

@@ -4,17 +4,44 @@ Runs on the **Raspberry Pi**: WebSocket server, heartbeat, failsafe, command exe
 
 ## Install (from repo root)
 
+**Debian / Raspberry Pi OS** blocks system-wide `pip` (PEP 668: “externally managed environment”). Use a **venv** — do not use `--break-system-packages` for this.
+
+**Option A — venv at repo root** (recommended if you only run `pi_runtime` here):
+
 ```bash
-pip install -e ./robot_link
-pip install -e ./pi_runtime
+cd ~/Documents/Cursor/GLaDOS_Arm   # your clone path
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e ./robot_link -e ./pi_runtime
 ```
 
+**Option B — reuse `personality_core`’s venv** (if you already use it for GLaDOS on the Pi):
+
+```bash
+cd ~/Documents/Cursor/GLaDOS_Arm/personality_core
+source .venv/bin/activate
+pip install -e ../robot_link -e ../pi_runtime
+```
+
+After either option, **`python` must be the venv’s** (`which python` should show `.../venv/bin/python`).
+
 ## Run
+
+Always **activate the venv** first, then:
 
 ```bash
 export PI_RUNTIME_HOST=0.0.0.0
 export PI_RUNTIME_PORT=8765
 python -m pi_runtime
+```
+
+**No venv** (not recommended): you can run from source without installing, but you must set `PYTHONPATH` to both `src` trees:
+
+```bash
+cd ~/Documents/Cursor/GLaDOS_Arm
+export PYTHONPATH="$(pwd)/robot_link/src:$(pwd)/pi_runtime/src"
+python3 -m pi_runtime
 ```
 
 ## Env

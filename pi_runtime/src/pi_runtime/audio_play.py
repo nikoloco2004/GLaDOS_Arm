@@ -212,8 +212,9 @@ def play_float32_mono_interruptible(
 ) -> bool:
     """Play resampled mono PCM; return True if ``stop_event`` was set (interrupt).
 
-    Uses the same pattern as ``glados`` PC playback: ``sd.play`` + daemon ``sd.wait`` thread,
-    polling ``stop_event`` and calling ``sd.stop()`` so another thread can barge in.
+    Uses a dedicated ``OutputStream`` and stops **only that stream** on interrupt.
+    **Never** call ``sd.stop()`` here: that stops *all* PortAudio streams and tears down
+    the mic ``InputStream`` used for barge-in, which can ``double free`` on Linux/ALSA.
     """
     if samples.size == 0:
         return False
@@ -224,19 +225,43 @@ def play_float32_mono_interruptible(
         play_data = _resample_linear_mono(samples, float(sample_rate), out_sr)
         log.debug("Resampled playback %.0f Hz -> %.0f Hz for Pi ALSA", sample_rate, out_sr)
 
-    play_kw: dict[str, Any] = {}
-    dev = _env_output_device()
-    if dev is not None:
-        play_kw["device"] = dev
-    sd.play(play_data, out_sr, **play_kw)
-    waiter = threading.Thread(target=sd.wait, name="pi-sd-wait", daemon=True)
-    waiter.start()
-    while waiter.is_alive():
+    dev = _output_dev()
+    blocksize = max(256, int(os.environ.get("PI_PLAYBACK_BLOCKSIZE", "1024")))
+    n_total = int(play_data.shape[0])
+    pos = 0
+
+    def callback(outdata: NDArray[np.float32], frames: int, _time_info: Any, status: Any) -> None:
+        nonlocal pos
+        if status:
+            log.debug("OutputStream status: %s", status)
         if stop_event.is_set():
-            try:
-                sd.stop()
-            except Exception:
-                pass
-            break
-        waiter.join(timeout=0.03)
+            raise sd.CallbackStop
+        remaining = n_total - pos
+        if remaining <= 0:
+            raise sd.CallbackStop
+        n = min(frames, remaining)
+        outdata[:n, 0] = play_data[pos : pos + n]
+        if n < frames:
+            outdata[n:, 0] = 0
+        pos += n
+
+    try:
+        with sd.OutputStream(
+            device=dev,
+            samplerate=out_sr,
+            channels=1,
+            dtype="float32",
+            blocksize=blocksize,
+            callback=callback,
+        ) as stream:
+            stream.start()
+            while stream.active:
+                if stop_event.is_set():
+                    stream.stop()
+                    break
+                time.sleep(0.02)
+    except Exception as e:
+        log.warning("playback OutputStream error: %s", e)
+        return stop_event.is_set()
+
     return stop_event.is_set()

@@ -88,11 +88,16 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
 
     hb_task = asyncio.create_task(heartbeat_loop())
 
-    # Shared with tts_pcm playback: typing a new line sets this to stop current speech (barge-in).
-    playback_stop: dict[str, threading.Event | None] = {"current": None}
+    # TTS playback state: stop event + metadata for user_interrupt ordering (matches GLaDOS speech_player).
+    playback: dict[str, Any] = {
+        "stop": None,
+        "cid": "",
+        "text": "",
+        "stdin_skip": False,
+    }
 
     def request_playback_stop() -> None:
-        ev = playback_stop["current"]
+        ev = playback["stop"]
         if ev is not None:
             ev.set()
 
@@ -106,6 +111,21 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
             text = line.strip()
             if not text:
                 continue
+            # Send user_interrupt before user_text so the brain can append SYSTEM context first.
+            if playback["stop"] is not None and _stdin_interrupt_enabled():
+                try:
+                    ui = Envelope(
+                        type="user_interrupt",
+                        payload=UserInterruptPayload(
+                            correlation_id=str(playback.get("cid", "")),
+                            full_intended_output=str(playback.get("text", "")),
+                        ).to_dict(),
+                    )
+                    await ws.send(ui.to_json())
+                    playback["stdin_skip"] = True
+                    log.info("pi → brain user_interrupt (stdin) before new user_text")
+                except Exception as e:
+                    log.warning("send user_interrupt (stdin) failed: %s", e)
             if _stdin_interrupt_enabled():
                 request_playback_stop()
             cid = str(time.time())
@@ -156,7 +176,9 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                     # Stop any clip already playing (e.g. user typed again before this frame arrived).
                     request_playback_stop()
                     stop_ev = threading.Event()
-                    playback_stop["current"] = stop_ev
+                    playback["stop"] = stop_ev
+                    playback["cid"] = payload.correlation_id
+                    playback["text"] = payload.text
                     done_ev = threading.Event()
                     mic_thread = threading.Thread(
                         target=mic_interrupt_monitor,
@@ -166,6 +188,7 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                     )
                     mic_thread.start()
                     interrupted = False
+                    stdin_already_sent = False
                     try:
                         interrupted = await asyncio.to_thread(
                             play_float32_mono_interruptible,
@@ -176,21 +199,27 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                     finally:
                         done_ev.set()
                         mic_thread.join(timeout=2.0)
-                        if playback_stop["current"] is stop_ev:
-                            playback_stop["current"] = None
+                        if playback["stop"] is stop_ev:
+                            stdin_already_sent = bool(playback.get("stdin_skip"))
+                            playback["stop"] = None
+                            playback["cid"] = ""
+                            playback["text"] = ""
+                            playback["stdin_skip"] = False
 
                     if interrupted:
                         log.info("tts_pcm interrupted (stdin, mic, or overlapping clip)")
-                        try:
-                            ui = Envelope(
-                                type="user_interrupt",
-                                payload=UserInterruptPayload(
-                                    correlation_id=payload.correlation_id,
-                                ).to_dict(),
-                            )
-                            await ws.send(ui.to_json())
-                        except Exception as send_e:
-                            log.warning("send user_interrupt failed: %s", send_e)
+                        if not stdin_already_sent:
+                            try:
+                                ui = Envelope(
+                                    type="user_interrupt",
+                                    payload=UserInterruptPayload(
+                                        correlation_id=payload.correlation_id,
+                                        full_intended_output=payload.text,
+                                    ).to_dict(),
+                                )
+                                await ws.send(ui.to_json())
+                            except Exception as send_e:
+                                log.warning("send user_interrupt failed: %s", send_e)
 
                     log.info(
                         "played tts_pcm: %d samples @ %d Hz (%s)%s",

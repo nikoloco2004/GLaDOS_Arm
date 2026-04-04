@@ -61,7 +61,10 @@ class BrainClient:
                     continue
 
                 if env.type == "user_interrupt":
-                    log.info("pi → user_interrupt (barge-in) %s", env.payload)
+                    p = env.payload
+                    full_out = str(p.get("full_intended_output", "") or "")
+                    log.info("pi → user_interrupt (barge-in) cid=%s", p.get("correlation_id"))
+                    pipeline.append_interrupt_context(full_out)
                     continue
         finally:
             keepalive.cancel()

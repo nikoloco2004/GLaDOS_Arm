@@ -113,6 +113,8 @@ class UserInterruptPayload:
     """Pi → brain: user spoke over TTS playback (barge-in / interrupt)."""
 
     correlation_id: str = ""
+    # Full assistant line that was being spoken (matches speech_player interrupt context).
+    full_intended_output: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

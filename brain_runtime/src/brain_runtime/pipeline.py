@@ -43,6 +43,27 @@ def _append_turn(user_text: str, assistant_text: str) -> None:
     _chat_history.append({"role": "assistant", "content": assistant_text})
 
 
+def append_interrupt_context(full_intended_output: str = "") -> None:
+    """Same idea as personality_core SpeechPlayer: SYSTEM user line after interrupt."""
+    if full_intended_output.strip():
+        _chat_history.append(
+            {
+                "role": "user",
+                "content": (
+                    "[SYSTEM: User interrupted mid-response! Full intended output: "
+                    f"'{full_intended_output}']"
+                ),
+            }
+        )
+    else:
+        _chat_history.append(
+            {
+                "role": "user",
+                "content": "[SYSTEM: User interrupted playback.]",
+            }
+        )
+
+
 def _ollama_base_url() -> str:
     """Ollama listen URL (no path). Accepts OLLAMA_URL or OLLAMA_HOST (some env files used the latter)."""
     raw = (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or "").strip()

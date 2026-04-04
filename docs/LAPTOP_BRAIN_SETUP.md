@@ -193,7 +193,19 @@ python -m brain_runtime
 ```powershell
 cd GLaDOS_Arm
 . .\scripts\brain_env.ps1
-python -m brain_runtime
+```
+
+Do **not** run `python -m brain_runtime` from repo root: the project folder `brain_runtime/` has the same name as the Python package and **shadows** the installed module. Either:
+
+```powershell
+cd personality_core
+.\.venv\Scripts\python.exe -m brain_runtime
+```
+
+(adjust venv path if needed), or use the helper:
+
+```powershell
+. .\scripts\run_brain_runtime.ps1
 ```
 
 **One-liner without helper:**

@@ -17,10 +17,11 @@ From repo root, after copying `configs/brain.env.example` → `configs/brain.env
 
 ```bash
 source scripts/brain_env.sh
+cd personality_core   # avoid shadowing: repo folder `brain_runtime/` breaks `python -m brain_runtime` from root
 python -m brain_runtime
 ```
 
-Windows PowerShell: `. .\scripts\brain_env.ps1` then `python -m brain_runtime`.
+Windows PowerShell: `. .\scripts\brain_env.ps1` then either `. .\scripts\run_brain_runtime.ps1` or `cd personality_core` and `.\.venv\Scripts\python.exe -m brain_runtime`.
 
 Full laptop/desktop setup and hotswap between main PC and laptop: [`docs/LAPTOP_BRAIN_SETUP.md`](../docs/LAPTOP_BRAIN_SETUP.md).
 

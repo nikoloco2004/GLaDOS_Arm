@@ -302,7 +302,9 @@ class _UtteranceDetector:
         self._recording = False
         self._samples: list[NDArray[np.float32]] = []
         self._gap = 0
-        self._pause_chunks = _PAUSE_MS // _VAD_SIZE_MS
+        pause_ms = float(os.environ.get("PI_VAD_PAUSE_MS", str(_PAUSE_MS)))
+        pause_ms = max(float(_VAD_SIZE_MS), min(pause_ms, 5000.0))
+        self._pause_chunks = max(1, int(round(pause_ms / float(_VAD_SIZE_MS))))
         min_ms = float(os.environ.get("PI_MIC_STREAM_MIN_MS", "200"))
         self._min_samples = max(_CHUNK, int(_ASR_SR * min_ms / 1000.0))
         max_ms = float(os.environ.get("PI_MIC_STREAM_MAX_MS", "30000"))
@@ -451,6 +453,10 @@ def run_vad_stream_thread(
                 "Pi VAD stream: capture @ %.0f Hz block=%d → resampled 16 kHz / 512 for Silero",
                 sr,
                 blocksize,
+            )
+            log.info(
+                "Pi VAD: segment uplinks after ~%.0f ms of silence at phrase end (PI_VAD_PAUSE_MS; default 640 — speak, then pause)",
+                float(det._pause_chunks) * _VAD_SIZE_MS,
             )
             log.info(
                 "Silero talk-over-TTS (barge-in): %s — set PI_STREAM_VOICE_DURING_TTS=0 if speaker echo causes false stops",

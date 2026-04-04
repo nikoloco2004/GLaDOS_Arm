@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 import sys
@@ -65,12 +66,12 @@ class BrainClient:
                 if isinstance(raw, bytes):
                     raw = raw.decode("utf-8")
                 env = Envelope.from_json(raw)
-                log.info("pi → %s %s", env.type, env.payload)
 
                 if env.type == "user_text":
                     p = env.payload
                     text = str(p.get("text", "")).strip()
                     cid = str(p.get("correlation_id", ""))
+                    log.info("pi → user_text: %s", text[:200])
                     if text:
                         await pipeline.handle_user_text(ws, text, cid)
                     continue
@@ -87,9 +88,18 @@ class BrainClient:
                     pcm = str(p.get("pcm_b64", ""))
                     sr = int(p.get("sample_rate", 16000))
                     cid = str(p.get("correlation_id", ""))
+                    n_samp = 0
+                    if pcm:
+                        try:
+                            n_samp = len(base64.b64decode(pcm)) // 4
+                        except Exception:
+                            n_samp = 0
+                    log.info("pi → user_audio_pcm (%d float32 samples @ %d Hz)", n_samp, sr)
                     if pcm:
                         await pipeline.handle_user_audio_pcm(ws, pcm, sr, cid)
                     continue
+
+                log.info("pi → %s %s", env.type, env.payload)
         finally:
             pc_stdin.cancel()
             try:

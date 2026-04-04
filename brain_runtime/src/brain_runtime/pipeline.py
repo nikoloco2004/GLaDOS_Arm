@@ -276,7 +276,16 @@ async def handle_user_audio_pcm(
         text = ""
 
     if not text.strip():
-        log.warning("ASR returned empty transcript; skipping LLM")
+        try:
+            ns = len(base64.b64decode(pcm_b64)) // 4
+        except Exception:
+            ns = 0
+        log.warning(
+            "ASR returned empty transcript (%d samples @ %d Hz); skipping LLM — check Pi mic/RMS, PI_VAD_THRESHOLD, "
+            "or ASR model on PC (GLADOS_ASR_ENGINE).",
+            ns,
+            sample_rate,
+        )
         return
 
     log.info("brain ASR: %s", text[:200])

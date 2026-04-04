@@ -126,6 +126,7 @@ python3 -m pi_runtime
 | `PI_MIC_UPLINK` | `1` | `0` to disable mic uplink (typing only) |
 | `PI_MIC_STREAM_MIN_MS` / `PI_MIC_STREAM_MAX_MS` | `200` / `30000` | VAD utterance length limits (continuous mode) |
 | `PI_VAD_THRESHOLD` | `0.5` | Silero speech score threshold; **lower = more sensitive** (try `0.35`–`0.45` if still nothing; `0.65`–`0.8` if noisy false triggers). |
+| `PI_VAD_PAUSE_MS` | `640` | Ms of **silence** after speech before an utterance is sent (shorter = snappier; too low may split phrases). |
 | `PI_MIC_DEBUG` | off | `1` → log capture **RMS** every ~1.5s (if RMS ~0, OS mic gain/mute is the problem). |
 | `GLADOS_SD_INPUT_DEVICE` / `PI_SD_INPUT_DEVICE` | default | PortAudio **input** index if the wrong mic is captured (see `./.venv/bin/python -c "import sounddevice as sd; print(sd.query_devices())"`). |
 | `PI_MIC_PREFER_USB` | `1` | After pairing **Bluetooth** headphones, PipeWire often sets the **default input** to HFP/BlueZ (can be silent). When `1`, skip BT-looking defaults and use wired **USB** capture. Set `0` to use the default input as-is (e.g. AirPods mic). |

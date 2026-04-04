@@ -48,12 +48,17 @@ class TextListener:
         self._command_handler = command_handler
         self._selector: selectors.BaseSelector | None = None
 
-        try:
-            selector = selectors.DefaultSelector()
-            selector.register(self._input_stream, selectors.EVENT_READ)
-            self._selector = selector
-        except Exception:
-            self._selector = None
+        # Windows console stdin is not a socket; select() raises WinError 10038.
+        use_select = not (
+            sys.platform == "win32" and self._input_stream is sys.stdin
+        )
+        if use_select:
+            try:
+                selector = selectors.DefaultSelector()
+                selector.register(self._input_stream, selectors.EVENT_READ)
+                self._selector = selector
+            except Exception:
+                self._selector = None
 
     def run(self) -> None:
         logger.info("TextListener thread started.")

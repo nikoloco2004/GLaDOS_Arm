@@ -281,7 +281,8 @@ def run_vad_stream_thread(
     pending = np.array([], dtype=np.float32)
 
     def make_callback(hw_sr: float):
-        last_debug_log = [0.0]
+        # [last log time, already warned about all-zero capture]
+        last_debug_log = [0.0, False]
 
         def audio_callback(
             indata: NDArray[np.float32],
@@ -300,10 +301,21 @@ def run_vad_stream_thread(
                 if t - last_debug_log[0] >= 1.5:
                     last_debug_log[0] = t
                     rms = float(np.sqrt(np.mean(np.square(np.atleast_1d(raw)))))
-                    log.info(
-                        "Pi MIC_DEBUG: capture RMS=%.6f (if ~0, unmute mic / raise Capture in alsamixer or pavucontrol)",
-                        rms,
-                    )
+                    if rms < 1e-7:
+                        if not last_debug_log[1]:
+                            last_debug_log[1] = True
+                            log.warning(
+                                "Mic capture is digital silence (RMS≈0). Not a VAD threshold issue — "
+                                "the OS/driver is not delivering audio. Fix: (1) Hardware mute off. "
+                                "(2) alsamixer → F6 → pick USB card → unmute Mic/Capture (M key) and raise level. "
+                                "(3) pavucontrol → Input → your USB mic → unmute + volume. "
+                                "(4) If still zero: arecord -l and try GLADOS_SD_INPUT_DEVICE=<PortAudio index>."
+                            )
+                    else:
+                        log.info(
+                            "Pi MIC_DEBUG: capture RMS=%.6f (speech often 0.001–0.05+; VAD can use this)",
+                            rms,
+                        )
             data = raw
             if float(hw_sr) != _ASR_SR:
                 data = _resample_mono(data, float(hw_sr), _ASR_SR)

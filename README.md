@@ -4,6 +4,8 @@ Modular control stack: **Python on Raspberry Pi** (kinematics, IK, mapping) and 
 
 **Split brain (optional):** run heavy AI / voice on a **gaming laptop** and keep the Pi as hardware + safety. See [`docs/SPLIT_BRAIN_ARCHITECTURE.md`](docs/SPLIT_BRAIN_ARCHITECTURE.md), packages [`robot_link/`](robot_link/), [`pi_runtime/`](pi_runtime/), [`brain_runtime/`](brain_runtime/).
 
+**Full voice on the PC** (mic + speaker, same potato config, no Pi bridge): [`docs/AUDIO_PC_POTATO.md`](docs/AUDIO_PC_POTATO.md) — from `personality_core/`, `python -m glados.cli start --config ../configs/pi_potato.yaml`, or run [`scripts/run_glados_audio_pc.ps1`](scripts/run_glados_audio_pc.ps1) from repo root.
+
 ---
 
 ## 1. Architecture (short)

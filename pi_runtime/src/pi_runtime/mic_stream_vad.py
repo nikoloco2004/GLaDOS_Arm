@@ -41,6 +41,18 @@ _VAD_THRESHOLD = 0.8
 _ASR_SR = 16000.0
 _CHUNK = 512  # 32 ms @ 16 kHz (Silero ONNX)
 
+
+def _vad_threshold_from_env() -> float:
+    """Silero speech probability threshold; lower = more sensitive (default 0.8 is strict for quiet mics)."""
+    raw = os.environ.get("PI_VAD_THRESHOLD", "").strip() or os.environ.get("GLADOS_VAD_THRESHOLD", "").strip()
+    if not raw:
+        return _VAD_THRESHOLD
+    try:
+        t = float(raw)
+        return max(0.05, min(0.99, t))
+    except ValueError:
+        return _VAD_THRESHOLD
+
 # TTS barge-in uses the same mic stream (ALSA often allows only one capture open).
 _barge_lock = threading.Lock()
 _barge_stop: threading.Event | None = None
@@ -258,7 +270,7 @@ def run_vad_stream_thread(
     if vad is None:
         return
 
-    thr = _VAD_THRESHOLD if vad_threshold is None else vad_threshold
+    thr = float(vad_threshold) if vad_threshold is not None else _vad_threshold_from_env()
     det = _UtteranceDetector(vad, thr)
     dev = _input_dev()
     pending = np.array([], dtype=np.float32)
@@ -305,6 +317,17 @@ def run_vad_stream_thread(
             )
             stream.start()
             set_detector_ref(det)
+            try:
+                info = sd.query_devices(dev, "input")
+                in_name = str(info.get("name", "?"))
+            except Exception:
+                in_name = "?"
+            log.info(
+                "Pi VAD: input device %s — %s; Silero threshold=%.2f (if she never hears you: lower with PI_VAD_THRESHOLD=0.45)",
+                dev,
+                in_name,
+                thr,
+            )
             log.info(
                 "Pi VAD stream: capture @ %.0f Hz block=%d → resampled 16 kHz / 512 for Silero",
                 sr,

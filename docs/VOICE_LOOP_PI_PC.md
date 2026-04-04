@@ -27,6 +27,8 @@ python -m pip install --upgrade pip
 python -m pip install -e ./robot_link -e ./pi_runtime
 ```
 
+If **`python -m pip` says `No module named pip`**, the venv has no pip. Run `python -m ensurepip --upgrade` inside the activated venv, or reinstall OS packages and recreate the venv — see [`pi_runtime/README.md`](../pi_runtime/README.md) (section *No module named pip*).
+
 Every session:
 
 ```bash

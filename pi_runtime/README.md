@@ -33,6 +33,40 @@ which python    # …/GLaDOS_Arm/.venv/bin/python or …/personality_core/.venv/
 python -m pip --version   # should mention that same venv path
 ```
 
+### `No module named pip` inside the venv
+
+That means the environment was created **without pip** (broken/minimal venv) or `python3-venv` was incomplete.
+
+**Fix (pick one):**
+
+1. **Install pip into the existing venv** (safest first try):
+
+   ```bash
+   source .venv/bin/activate   # or personality_core/.venv
+   python -m ensurepip --upgrade
+   python -m pip install --upgrade pip
+   ```
+
+2. **Recreate the venv** after OS packages are correct:
+
+   ```bash
+   sudo apt update
+   sudo apt install -y python3-venv python3-full python3-pip
+   cd ~/Documents/Cursor/GLaDOS_Arm/personality_core   # or repo root for .venv
+   rm -rf .venv
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install --upgrade pip
+   python -m pip install -e ../robot_link -e ../pi_runtime
+   ```
+
+3. **Bootstrap pip manually** if `ensurepip` fails:
+
+   ```bash
+   source .venv/bin/activate
+   curl -sS https://bootstrap.pypa.io/get-pip.py | python
+   ```
+
 ## Run
 
 Always **activate the venv** first, then:

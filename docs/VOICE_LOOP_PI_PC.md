@@ -72,6 +72,7 @@ Audio should play on the **Pi** speaker after a short delay.
 | `OLLAMA_HOST` | PC | Same as `OLLAMA_URL` if `OLLAMA_URL` is unset (alias for confused naming). |
 | `OLLAMA_MODEL` | PC | Default **`llama3.2`** (3B, matches upstream `glados_config.yaml`). Use `llama3.2:1b` only if Ollama runs on the Pi itself. |
 | `OLLAMA_CHAT_HISTORY_MAX` | PC | Max past messages to send (user+assistant pairs), default `24`. |
+| `GLADOS_INTERRUPT_HINT` | PC | Optional. Overrides the default SYSTEM nudge when the test subject interrupts TTS so GLaDOS reacts briefly before the next reply (see `brain_runtime` `append_interrupt_context`). |
 | `OLLAMA_NUM_CTX` | PC | Context length for Ollama, default `8192`. |
 | `GLADOS_VOICE` | PC | TTS voice, default `glados`. |
 | `GLADOS_TTS_SPOKEN_TEXT` | PC | Default `1`: run reply through `SpokenTextConverter` so digits like `19` are spoken as *nineteen* (same as full `glados`). Set `0` to feed raw LLM text to TTS. |

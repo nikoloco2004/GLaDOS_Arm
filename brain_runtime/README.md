@@ -25,7 +25,7 @@ Windows PowerShell: `. .\scripts\brain_env.ps1` then either `. .\scripts\run_bra
 
 Full laptop/desktop setup and hotswap between main PC and laptop: [`docs/LAPTOP_BRAIN_SETUP.md`](../docs/LAPTOP_BRAIN_SETUP.md).
 
-**Pi keyboard → PC brain → Pi speaker:** [`docs/VOICE_LOOP_PI_PC.md`](../docs/VOICE_LOOP_PI_PC.md) (requires `personality_core` + Ollama on the PC). Default LLM is **`llama3.2`** with sliding-window chat history (same idea as full `glados`). In the **same terminal** as `brain_runtime`, **Enter** stops Pi TTS; a typed line + Enter stops then sends that text (`PC_STDIN_INTERRUPT=0` to disable).
+**Pi keyboard → PC brain → Pi speaker:** [`docs/VOICE_LOOP_PI_PC.md`](../docs/VOICE_LOOP_PI_PC.md) (requires `personality_core` + Ollama on the PC). Default LLM is **`llama3.2`** with sliding-window chat history (same idea as full `glados`). In the **same terminal** as `brain_runtime`, **Enter** stops Pi TTS; a typed line + Enter stops then sends that text (`PC_STDIN_INTERRUPT=0` to disable). After an interrupt, the pipeline injects a small SYSTEM hint so she can give a **brief** dry reaction before answering—override with **`GLADOS_INTERRUPT_HINT`** if you want different wording.
 
 **Pi mic → ASR on PC:** [`docs/VOICE_MIC_PI_PC.md`](../docs/VOICE_MIC_PI_PC.md) — type `/mic` on the Pi; requires ONNX ASR models from `glados.cli download`.
 

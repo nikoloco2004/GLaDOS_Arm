@@ -48,15 +48,26 @@ def _append_turn(user_text: str, assistant_text: str) -> None:
     _chat_history.append({"role": "assistant", "content": assistant_text})
 
 
+def _interrupt_system_hint() -> str:
+    """Nudge the model to react subtly when the test subject cuts her off."""
+    return os.environ.get(
+        "GLADOS_INTERRUPT_HINT",
+        "They interrupted you while you were speaking. React in one tiny beat—half a clause of dry annoyance or dismissal—then answer what they do next. Do not pretend you finished your sentence.",
+    ).strip()
+
+
 def append_interrupt_context(full_intended_output: str = "") -> None:
-    """Same idea as personality_core SpeechPlayer: SYSTEM user line after interrupt."""
+    """Inject SYSTEM context so the next reply acknowledges interruption briefly (GLaDOS-flavored)."""
+    hint = _interrupt_system_hint()
     if full_intended_output.strip():
+        clipped = full_intended_output.strip()
+        if len(clipped) > 2000:
+            clipped = clipped[:2000] + "…"
         _chat_history.append(
             {
                 "role": "user",
                 "content": (
-                    "[SYSTEM: User interrupted mid-response! Full intended output: "
-                    f"'{full_intended_output}']"
+                    f"[SYSTEM: {hint} Interrupted line was going toward: «{clipped}»]"
                 ),
             }
         )
@@ -64,7 +75,7 @@ def append_interrupt_context(full_intended_output: str = "") -> None:
         _chat_history.append(
             {
                 "role": "user",
-                "content": "[SYSTEM: User interrupted playback.]",
+                "content": f"[SYSTEM: {hint}]",
             }
         )
 

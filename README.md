@@ -2,6 +2,8 @@
 
 Modular control stack: **Python on Raspberry Pi** (kinematics, IK, mapping) and **Arduino firmware** (servo execution, clamps, optional slew).
 
+**Split brain (optional):** run heavy AI / voice on a **gaming laptop** and keep the Pi as hardware + safety. See [`docs/SPLIT_BRAIN_ARCHITECTURE.md`](docs/SPLIT_BRAIN_ARCHITECTURE.md), packages [`robot_link/`](robot_link/), [`pi_runtime/`](pi_runtime/), [`brain_runtime/`](brain_runtime/).
+
 ---
 
 ## 1. Architecture (short)

@@ -255,7 +255,7 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
         log.warning(
             "stdin is not a TTY — Pi keyboard voice loop disabled. "
             "Use `ssh -t user@pi`, or press Enter in the **PC brain_runtime** terminal (after upgrade), "
-            "or `export PI_STREAM_VOICE_DURING_TTS=1` on the Pi for mic barge-in while she speaks."
+            "or `export PI_STREAM_VOICE_DURING_TTS=0` on the Pi if speaker→mic echo causes false interrupts."
         )
 
     stream_stop = threading.Event()

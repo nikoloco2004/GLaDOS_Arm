@@ -47,20 +47,19 @@ _barge_stop: threading.Event | None = None
 _barge_hits = 0
 _barge_ignore_until = 0.0
 
-# While TTS plays, speaker → mic bleed looks like speech to Silero (echo). Default: gate off
-# segmentation + barge-in until playback ends. Set PI_STREAM_VOICE_DURING_TTS=1 for headset/duplex.
+# While TTS plays, speaker → mic bleed can look like speech (echo). Default: **allow** Silero barge-in
+# so you can talk over her; set PI_STREAM_VOICE_DURING_TTS=0 to gate echo (use Enter / PC interrupt only).
 _playback_active = threading.Event()
 _det_ref_lock = threading.Lock()
 _detector_ref: "_UtteranceDetector | None" = None
 
 
 def duplex_voice_during_tts() -> bool:
-    return os.environ.get("PI_STREAM_VOICE_DURING_TTS", "0").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    """If True: VAD barge-in + utterance segmentation while Pi plays TTS (default). If False: echo-safe gate."""
+    raw = os.environ.get("PI_STREAM_VOICE_DURING_TTS", "1").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return True
 
 
 def _playback_gate_enabled() -> bool:
@@ -310,6 +309,10 @@ def run_vad_stream_thread(
                 "Pi VAD stream: capture @ %.0f Hz block=%d → resampled 16 kHz / 512 for Silero",
                 sr,
                 blocksize,
+            )
+            log.info(
+                "Silero talk-over-TTS (barge-in): %s — set PI_STREAM_VOICE_DURING_TTS=0 if speaker echo causes false stops",
+                "on" if duplex_voice_during_tts() else "off",
             )
             try:
                 while not stop_event.wait(0.2):

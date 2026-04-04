@@ -108,7 +108,7 @@ class BrainClient:
             return
         if not sys.stdin.isatty():
             log.info(
-                "PC stdin interrupt off (not a TTY). Use Pi SSH Enter, or mic barge-in: PI_STREAM_VOICE_DURING_TTS=1 on Pi."
+                "PC stdin interrupt off (not a TTY). Use Pi SSH Enter, or talk over her (mic barge-in is on by default on Pi)."
             )
             return
         log.info("PC brain: Enter = stop Pi TTS; text + Enter = stop + send line to GLaDOS")

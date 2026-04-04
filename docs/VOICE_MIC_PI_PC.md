@@ -37,7 +37,7 @@ When continuous mode is on, **`/mic`** still works for a fixed-length clip.
 
 **ALSA / one mic handle:** Many Pi USB mics allow only **one** open capture stream. Stream mode keeps that handle for VAD, so a **second** mic open (e.g. old “voice interrupt” during TTS) fails with `Device unavailable`. In stream mode, **barge-in** reuses the same VAD stream (Silero speech frames), not a second `InputStream`.
 
-**Speaker → mic (echo):** While GLaDOS speaks, the built-in mic often hears the speaker. Silero then treats that as **speech**, which used to **interrupt TTS** and send bogus **`user_audio_pcm`** clips. **Default:** while `tts_pcm` is playing, the Pi **does not** run utterance segmentation or VAD barge-in (only advances the VAD model). After playback ends, listening resumes. To try **voice barge-in** during TTS anyway (e.g. headset, quiet room), set **`PI_STREAM_VOICE_DURING_TTS=1`** — echo may return.
+**Speaker → mic (echo):** While GLaDOS speaks, the built-in mic may hear the speaker. **Default:** **`PI_STREAM_VOICE_DURING_TTS` is on** — Silero can **barge-in** (stop TTS when you talk) and segment speech, same as a headset setup. If the speaker is loud and you get **false** interrupts or bogus **`user_audio_pcm`** clips, set **`PI_STREAM_VOICE_DURING_TTS=0`** on the Pi — then use **Enter** (Pi SSH or PC `brain_runtime` terminal) to stop playback instead.
 
 ## PC: requirements
 
@@ -54,7 +54,7 @@ When continuous mode is on, **`/mic`** still works for a fixed-length clip.
 | `PI_MIC_MODE` | Pi | **Default:** continuous VAD. Set **`push`** / **`ptt`** / **`0`** / **`off`** for **`/mic`** only. |
 | `PI_MIC_STREAM_MIN_MS` | Pi | Min utterance length (default `200`) to drop noise blips. |
 | `PI_MIC_STREAM_MAX_MS` | Pi | Max utterance length (default `30000`) before force-send. |
-| `PI_STREAM_VOICE_DURING_TTS` | Pi | `1` = allow VAD segments + mic barge-in **during** TTS (headset); default **off** (avoids speaker echo). |
+| `PI_STREAM_VOICE_DURING_TTS` | Pi | Default **on**: VAD segments + mic barge-in **during** TTS. Set **`0`** if speaker→mic echo causes false interrupts. |
 | `PI_MIC_UPLINK` | Pi | Set `0` to disable mic uplink (typing only). |
 | `GLADOS_SD_INPUT_DEVICE` / `PI_SD_INPUT_DEVICE` | Pi | PortAudio **input** index for the mic. |
 | `GLADOS_ASR_ENGINE` | PC | `tdt` (default) or `ctc` — same as full Glados ASR. |

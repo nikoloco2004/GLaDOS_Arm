@@ -112,7 +112,7 @@ python3 -m pi_runtime
 |----------|---------|---------|
 | `PI_RUNTIME_HOST` | `::` | Bind address. **`::`** listens on **IPv6 and IPv4** (dual-stack on typical Linux). Use `0.0.0.0` for IPv4-only. If `::` fails to bind, the server falls back to `0.0.0.0`. |
 | `PI_RUNTIME_PORT` | `8765` | TCP port |
-| `PI_FAILSAFE_S` | `8.0` | No valid brain ping → failsafe |
+| `PI_FAILSAFE_S` | `60.0` | Seconds without **inbound** brain traffic (or after your last Pi uplink) before failsafe; voice/ASR/LLM often needs ≥60s |
 | `PI_VOICE_INTERRUPT` | `1` | `0` to disable mic barge-in during TTS playback |
 | `PI_STDIN_INTERRUPT` | `1` | `0` to disable stopping speech when you type a new line while she talks |
 | `PI_SD_INPUT_DEVICE` / `GLADOS_SD_INPUT_DEVICE` | default | PortAudio input index for interrupt detection |

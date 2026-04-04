@@ -104,7 +104,8 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
 async def _handler_session(ws: WebSocketServerProtocol) -> None:
     peer = ws.remote_address
     log.info("brain connected: %s", peer)
-    watchdog = LinkWatchdog(failsafe_s=_env_float("PI_FAILSAFE_S", 8.0))
+    # Voice: ASR + LLM + TTS on the PC often exceeds 8s with no inbound frame; default 60s.
+    watchdog = LinkWatchdog(failsafe_s=_env_float("PI_FAILSAFE_S", 60.0))
     watchdog.on_brain_message()
 
     host = socket.gethostname()
@@ -177,6 +178,7 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
                     ).to_dict(),
                 )
                 await ws.send(ui.to_json())
+                watchdog.on_brain_message()
                 playback["stdin_skip"] = True
                 log.info("pi → brain user_interrupt (stdin) before new input")
             except Exception as e:
@@ -218,6 +220,7 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
                 )
                 try:
                     await ws.send(env.to_json())
+                    watchdog.on_brain_message()
                     log.info(
                         "pi → brain user_audio_pcm: %d samples @ %d Hz",
                         samples.size,
@@ -235,6 +238,7 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
             )
             try:
                 await ws.send(env.to_json())
+                watchdog.on_brain_message()
                 log.info("pi → brain user_text: %s", text[:120])
             except Exception as e:
                 log.warning("send user_text failed: %s", e)
@@ -302,6 +306,7 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
                         )
                         try:
                             await ws.send(env.to_json())
+                            watchdog.on_brain_message()
                             log.info(
                                 "pi → brain user_audio_pcm (VAD): %d samples @ %d Hz",
                                 samples.size,

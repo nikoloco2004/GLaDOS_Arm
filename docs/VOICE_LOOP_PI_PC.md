@@ -101,7 +101,7 @@ export PI_AUDIO_OUTPUT_SR=48000
 
 ## Troubleshooting
 
-- **False `failsafe: no brain traffic` while she is still talking:** The WebSocket handler blocks during `tts_pcm` playback, so no inbound frames are read until the clip ends; the link watchdog used to think the brain vanished. Current `pi_runtime` feeds the watchdog for the duration of playback — **pull latest** and restart `pi_runtime`.
+- **False `failsafe: no brain traffic` after you speak:** The PC can spend **tens of seconds** on ASR + Ollama + TTS before any **inbound** frame hits the Pi. Default **`PI_FAILSAFE_S` is 60s**; uplinks (`user_text` / `user_audio_pcm`) also reset the timer. Raise further if needed (e.g. very slow PC). During **Pi TTS playback**, the watchdog is fed while audio plays — **pull latest** `pi_runtime`.
 - **Two `brain connected` lines with different ports:** You started **`brain_runtime` twice** on the PC. Use **one** brain process. Current `pi_runtime` **closes** the second WebSocket (code 1008) so the first session keeps the USB mic; older builds left both open and the second VAD thread hit ALSA `Device unavailable`.
 - **ALSA `Device unavailable` / PortAudio `-9985`:** Often **mic + speaker** on the same USB gadget or half-duplex card. Try **`export PI_VOICE_INTERRUPT=0`** on the Pi before `python -m pi_runtime` (disables mic barge-in; **stdin interrupt still works** if `PI_STDIN_INTERRUPT=1`).
 - **Typing does not cut her off until Enter:** The SSH voice loop is **line-based** (`readline`). Press **Enter** on the **Pi** terminal where `pi_runtime` runs — even a **blank line** stops TTS (`user_interrupt` + stop playback), then any non-empty line is sent as `user_text`. Typing on the PC brain terminal does **not** reach the Pi.

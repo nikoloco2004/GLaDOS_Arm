@@ -37,13 +37,18 @@ def mic_mode_wants_continuous_stream() -> bool:
 _VAD_SIZE_MS = 32
 _BUFFER_MS = 800
 _PAUSE_MS = 640
-_VAD_THRESHOLD = 0.8
+# Default tuned for typical USB mics on Pi; 0.8 (common desktop default) often misses quiet speech.
+_VAD_THRESHOLD = 0.5
 _ASR_SR = 16000.0
 _CHUNK = 512  # 32 ms @ 16 kHz (Silero ONNX)
 
 
+def _mic_debug_enabled() -> bool:
+    return os.environ.get("PI_MIC_DEBUG", "").strip().lower() in ("1", "true", "yes")
+
+
 def _vad_threshold_from_env() -> float:
-    """Silero speech probability threshold; lower = more sensitive (default 0.8 is strict for quiet mics)."""
+    """Silero speech probability threshold; lower = more sensitive (default 0.5; use 0.65–0.8 if noisy)."""
     raw = os.environ.get("PI_VAD_THRESHOLD", "").strip() or os.environ.get("GLADOS_VAD_THRESHOLD", "").strip()
     if not raw:
         return _VAD_THRESHOLD
@@ -276,6 +281,8 @@ def run_vad_stream_thread(
     pending = np.array([], dtype=np.float32)
 
     def make_callback(hw_sr: float):
+        last_debug_log = [0.0]
+
         def audio_callback(
             indata: NDArray[np.float32],
             frames: int,
@@ -287,7 +294,17 @@ def run_vad_stream_thread(
                 return
             if status:
                 log.debug("audio callback status: %s", status)
-            data = np.asarray(indata, dtype=np.float32).copy().squeeze()
+            raw = np.asarray(indata, dtype=np.float32).copy().squeeze()
+            if _mic_debug_enabled():
+                t = time.monotonic()
+                if t - last_debug_log[0] >= 1.5:
+                    last_debug_log[0] = t
+                    rms = float(np.sqrt(np.mean(np.square(np.atleast_1d(raw)))))
+                    log.info(
+                        "Pi MIC_DEBUG: capture RMS=%.6f (if ~0, unmute mic / raise Capture in alsamixer or pavucontrol)",
+                        rms,
+                    )
+            data = raw
             if float(hw_sr) != _ASR_SR:
                 data = _resample_mono(data, float(hw_sr), _ASR_SR)
             pending = np.concatenate([pending, data])
@@ -323,7 +340,8 @@ def run_vad_stream_thread(
             except Exception:
                 in_name = "?"
             log.info(
-                "Pi VAD: input device %s — %s; Silero threshold=%.2f (if she never hears you: lower with PI_VAD_THRESHOLD=0.45)",
+                "Pi VAD: input device %s — %s; Silero threshold=%.2f (set PI_VAD_THRESHOLD=0.35–0.45 if still no speech; "
+                "PI_MIC_DEBUG=1 logs RMS)",
                 dev,
                 in_name,
                 thr,

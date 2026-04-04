@@ -128,6 +128,9 @@ python3 -m pi_runtime
 | `PI_AUDIO_OUTPUT_SR` / `GLADOS_AUDIO_OUTPUT_SR` | probe | Force TTS output sample rate (e.g. `48000`) if ALSA is picky |
 | `GLADOS_SD_OUTPUT_DEVICE` / `PI_SD_OUTPUT_DEVICE` | *(auto)* | PortAudio **output** index, or **`default`** / **`pulse`** / **`sysdefault`** for PipeWire/Pulse (Bluetooth often only appears there). Use an index for a specific USB speaker. |
 | `PI_AUDIO_OUTPUT_CHANNELS` | probe **1 then 2** | Set `1` or `2` to force; **Bluetooth A2DP** often rejects mono — code tries stereo automatically |
+| `PI_PLAYBACK_PAPLAY` | `1` | If PortAudio cannot open any sink, fall back to **`paplay`** or **`pw-play`** (same default output as music). Set `0` to disable. |
+| `PI_AUDIO_NAMED_STEREO_FIRST` | `1` | For `default`/`pulse`/host default, try **stereo** before mono (Bluetooth). Set `0` for mono-first on named devices. |
+| `PI_AUDIO_DEBUG` | off | Set `1` to log failed PortAudio probe attempts (rate/channel/blocksize). |
 
 Wire `executor.py` to `glados_arm` when ready.
 

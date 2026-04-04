@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import shutil
+import subprocess
 import threading
 import time
 from typing import Any, TypeAlias
@@ -25,6 +27,8 @@ OutputDeviceSpec: TypeAlias = int | str | None
 _cached_out_sr: float | None = None
 _cached_out_channels: int | None = None  # 1 or 2 (Bluetooth A2DP often requires stereo)
 _cached_output_device: OutputDeviceSpec = None  # set after successful probe (may differ from sd.default)
+_cached_playback_backend: str | None = None  # "portaudio" | "pulse_cli" (paplay or pw-play)
+_cached_pulse_cli: list[str] | None = None  # argv[0] when using pulse_cli
 
 
 def _env_output_device() -> OutputDeviceSpec:
@@ -201,26 +205,211 @@ def _resample_linear_mono(
     return np.interp(t_new, t_old, x).astype(np.float32)
 
 
+def _audio_debug() -> bool:
+    return os.environ.get("PI_AUDIO_DEBUG", "").strip().lower() in ("1", "true", "yes")
+
+
+def _channel_order_for_device(device: OutputDeviceSpec) -> list[int]:
+    """USB speakers often work mono-first; PipeWire/Pulse names + Bluetooth often need stereo."""
+    forced = os.environ.get("PI_AUDIO_OUTPUT_CHANNELS", "").strip()
+    if forced in ("1", "2"):
+        return [int(forced)]
+    if isinstance(device, str) or device is None:
+        if os.environ.get("PI_AUDIO_NAMED_STEREO_FIRST", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        ):
+            return [2, 1]
+    return [1, 2]
+
+
 def _probe_output_stream(sr: float, channels: int, device: OutputDeviceSpec) -> bool:
     """Return True if PortAudio can open this output device at sr/channels (Bluetooth often needs stereo)."""
 
     def _out_cb(outdata: NDArray[np.float32], frames: int, t: Any, st: Any) -> None:
         outdata.fill(0)
 
-    try:
-        stream = sd.OutputStream(
-            device=device,
-            samplerate=sr,
-            channels=channels,
-            callback=_out_cb,
-            blocksize=1024,
-        )
-        stream.start()
-        stream.stop()
-        stream.close()
-        return True
-    except Exception:
+    for blocksize in (1024, None, 0, 512):
+        try:
+            kw: dict[str, Any] = dict(
+                device=device,
+                samplerate=sr,
+                channels=channels,
+                callback=_out_cb,
+            )
+            if blocksize is not None:
+                kw["blocksize"] = blocksize
+            stream = sd.OutputStream(**kw)
+            stream.start()
+            stream.stop()
+            stream.close()
+            return True
+        except Exception as e:
+            if _audio_debug():
+                log.debug(
+                    "PortAudio probe fail sr=%s ch=%s dev=%s block=%s: %s",
+                    sr,
+                    channels,
+                    device,
+                    blocksize,
+                    e,
+                )
+            continue
+    return False
+
+
+def _find_pulse_cli() -> list[str] | None:
+    """paplay (PulseAudio utils) or pw-play (PipeWire); same default sink as desktop/music."""
+    for name in ("paplay", "pw-play"):
+        p = shutil.which(name)
+        if p:
+            return [p]
+    return None
+
+
+def _pulse_cli_play_argv(cli: list[str], rate: int, channels: int) -> list[str]:
+    exe = os.path.basename(cli[0]).lower()
+    if exe == "paplay":
+        return [
+            cli[0],
+            "--format=float32le",
+            f"--rate={rate}",
+            f"--channels={channels}",
+            "-",
+        ]
+    if exe == "pw-play":
+        return [
+            cli[0],
+            f"--rate={rate}",
+            "--format=F32_LE",
+            f"--channels={channels}",
+            "-",
+        ]
+    return []
+
+
+def _try_pulse_cli_fallback_cache() -> bool:
+    """When PortAudio cannot open PipeWire/Pulse virtual devices, use paplay or pw-play (same path as GUI players)."""
+    global _cached_out_sr, _cached_out_channels, _cached_output_device, _cached_playback_backend, _cached_pulse_cli
+    if os.environ.get("PI_PLAYBACK_PAPLAY", "1").strip().lower() in ("0", "false", "no", "off"):
         return False
+    cli = _find_pulse_cli()
+    if not cli:
+        return False
+    sr = 48000.0
+    env_sr = os.environ.get("PI_AUDIO_OUTPUT_SR", "").strip() or os.environ.get("GLADOS_AUDIO_OUTPUT_SR", "").strip()
+    if env_sr:
+        try:
+            sr = float(env_sr)
+        except ValueError:
+            pass
+    ch_env = os.environ.get("PI_AUDIO_OUTPUT_CHANNELS", "").strip()
+    if ch_env == "2":
+        ch = 2
+    elif ch_env == "1":
+        ch = 1
+    else:
+        ch = 2
+    _cached_playback_backend = "pulse_cli"
+    _cached_pulse_cli = cli
+    _cached_out_sr = sr
+    _cached_out_channels = ch
+    _cached_output_device = None
+    log.info(
+        "Pi TTS playback: using %s fallback (PortAudio opened no device; PipeWire/Pulse CLI).",
+        os.path.basename(cli[0]),
+    )
+    return True
+
+
+def _play_pulse_cli_interruptible(
+    samples: NDArray[np.float32],
+    sample_rate: float,
+    stop_event: threading.Event,
+    out_sr: float,
+) -> bool:
+    """Play via paplay/pw-play stdin; interrupt kills the subprocess."""
+    cli = _cached_pulse_cli
+    if not cli:
+        return False
+    out_ch = int(_cached_out_channels or 1)
+    if abs(float(sample_rate) - out_sr) < 0.5:
+        play_data = np.asarray(samples, dtype=np.float32).reshape(-1)
+    else:
+        play_data = _resample_linear_mono(samples, float(sample_rate), out_sr)
+        log.debug("Resampled playback %.0f Hz -> %.0f Hz for pulse_cli", sample_rate, out_sr)
+
+    rate_i = int(round(out_sr))
+    argv = _pulse_cli_play_argv(cli, rate_i, out_ch)
+    if not argv:
+        return False
+
+    if out_ch == 2:
+        x = play_data.reshape(-1, 1)
+        inter = np.concatenate([x, x], axis=1).astype(np.float32)
+        play_bytes = inter.reshape(-1).tobytes()
+    else:
+        play_bytes = play_data.tobytes()
+
+    chunk_bytes = max(4096, int(os.environ.get("PI_PAPLAY_CHUNK_BYTES", "262144")))
+
+    try:
+        proc = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as e:
+        log.warning("pulse_cli playback failed to start: %s", e)
+        return stop_event.is_set()
+
+    def writer() -> None:
+        assert proc.stdin is not None
+        pos = 0
+        try:
+            while pos < len(play_bytes) and not stop_event.is_set():
+                n = min(chunk_bytes, len(play_bytes) - pos)
+                proc.stdin.write(play_bytes[pos : pos + n])
+                pos += n
+        except BrokenPipeError:
+            pass
+        except Exception as e:
+            if _audio_debug():
+                log.debug("pulse_cli writer: %s", e)
+        finally:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+
+    t = threading.Thread(target=writer, daemon=True)
+    t.start()
+
+    while proc.poll() is None:
+        if stop_event.is_set():
+            proc.terminate()
+            try:
+                proc.wait(timeout=1.5)
+            except Exception:
+                pass
+            t.join(timeout=0.5)
+            return True
+        time.sleep(0.02)
+
+    t.join(timeout=2.0)
+    err = b""
+    try:
+        if proc.stderr:
+            err = proc.stderr.read() or b""
+    except Exception:
+        pass
+    code = proc.returncode
+    if code not in (0, None, -15, -9):  # 0 ok; -15/-9 SIGTERM/SIGKILL (interrupt)
+        log.warning("pulse_cli exited %s: %s", code, err[:400].decode(errors="replace"))
+    return stop_event.is_set()
 
 
 def _ordered_sr_candidates(device: OutputDeviceSpec) -> list[float]:
@@ -240,21 +429,13 @@ def _ordered_sr_candidates(device: OutputDeviceSpec) -> list[float]:
 
 def resolve_output_samplerate() -> float:
     """Pick device + rate + channel count PortAudio accepts; cache result."""
-    global _cached_out_sr, _cached_out_channels, _cached_output_device
+    global _cached_out_sr, _cached_out_channels, _cached_output_device, _cached_playback_backend, _cached_pulse_cli
     if (
         _cached_out_sr is not None
         and _cached_out_channels is not None
-        and _cached_output_device is not None
+        and _cached_playback_backend is not None
     ):
         return _cached_out_sr
-
-    forced_ch = os.environ.get("PI_AUDIO_OUTPUT_CHANNELS", "").strip()
-    ch_order: list[int]
-    if forced_ch in ("1", "2"):
-        ch_order = [int(forced_ch)]
-    else:
-        # Mono first (USB speakers); stereo second (many Bluetooth A2DP sinks reject mono streams).
-        ch_order = [1, 2]
 
     fixed = _env_output_device()
     if fixed is not None:
@@ -285,12 +466,15 @@ def resolve_output_samplerate() -> float:
         )
 
     for device in devices:
+        ch_order = _channel_order_for_device(device)
         for sr in _ordered_sr_candidates(device):
             for ch in ch_order:
                 if _probe_output_stream(sr, ch, device):
                     _cached_out_sr = float(sr)
                     _cached_out_channels = ch
                     _cached_output_device = device
+                    _cached_playback_backend = "portaudio"
+                    _cached_pulse_cli = None
                     try:
                         if device is None:
                             name = "(default)"
@@ -309,10 +493,17 @@ def resolve_output_samplerate() -> float:
                     )
                     return _cached_out_sr
 
+    if _try_pulse_cli_fallback_cache():
+        if _cached_out_sr is None:  # pragma: no cover
+            raise RuntimeError("pulse_cli fallback did not set sample rate")
+        return _cached_out_sr
+
     raise RuntimeError(
-        "No working output on any device. Try: export PI_AUDIO_OUTPUT_SR=48000 "
-        "and GLADOS_SD_OUTPUT_DEVICE=<index|default|pulse> "
-        "(./.venv/bin/python -c \"import sounddevice as sd; print(sd.query_devices())\")."
+        "No working output: PortAudio failed and paplay/pw-play not found. "
+        "Install pulseaudio-utils (paplay) or ensure pw-play is on PATH; "
+        "or set PI_AUDIO_OUTPUT_SR=48000 and GLADOS_SD_OUTPUT_DEVICE=<index|default|pulse>. "
+        "PI_AUDIO_DEBUG=1 logs PortAudio probe errors. "
+        "Disable CLI fallback with PI_PLAYBACK_PAPLAY=0 only if you must."
     )
 
 
@@ -431,6 +622,8 @@ def play_float32_mono_interruptible(
     if samples.size == 0:
         return False
     out_sr = resolve_output_samplerate()
+    if _cached_playback_backend == "pulse_cli":
+        return _play_pulse_cli_interruptible(samples, sample_rate, stop_event, out_sr)
     out_ch = _output_channel_count()
     if abs(float(sample_rate) - out_sr) < 0.5:
         play_data = np.asarray(samples, dtype=np.float32).reshape(-1)

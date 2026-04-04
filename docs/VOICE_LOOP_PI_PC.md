@@ -55,6 +55,18 @@ Audio should play on the **Pi** speaker after a short delay.
 | `GLADOS_VOICE` | PC | TTS voice, default `glados`. |
 | `GLADOS_CHAT_SYSTEM_PROMPT` | PC | Short system prompt for chat (not full `pi_potato.yaml` unless you paste it). |
 
+## Pi audio: “Invalid sample rate” (ALSA)
+
+GLaDOS TTS is often **22050 Hz**; many Pi ALSA devices only accept **48000 / 44100 / 16000 Hz**. The runtime **resamples** automatically and probes a working rate on first playback.
+
+If playback still fails, set the rate explicitly on the **Pi** before `pi_runtime`:
+
+```bash
+export PI_AUDIO_OUTPUT_SR=48000
+# optional: PortAudio device index if the wrong card is used
+# export GLADOS_SD_OUTPUT_DEVICE=1
+```
+
 ## Notes
 
 - **GLaDOS `start` on the PC** is separate: use it for mic + typing on the **PC**. The voice loop is **Pi keyboard → Pi speaker** via the PC brain.

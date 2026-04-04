@@ -434,15 +434,47 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
         log.info("brain disconnected: %s", peer)
 
 
+def _ws_create_server_kwargs(bind_host: str) -> dict[str, Any]:
+    """IPv6 any-address needs AF_INET6 so Linux dual-stack accepts IPv4 + IPv6."""
+    if bind_host in ("::", "::0"):
+        return {"family": socket.AF_INET6}
+    return {}
+
+
+def _format_listen_url(bind_host: str, port: int) -> str:
+    """Log line / URL form (bracket IPv6)."""
+    if bind_host in ("::", "::0"):
+        return f"[::]:{port}"
+    if ":" in bind_host and not bind_host.startswith("["):
+        return f"[{bind_host}]:{port}"
+    return f"{bind_host}:{port}"
+
+
 async def run_server(host: str, port: int) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    async with websockets.serve(
-        _handler,
-        host,
-        port,
-        ping_interval=20,
-        ping_timeout=40,
-        max_size=12 * 1024 * 1024,
-    ):
-        log.info("pi_runtime listening on ws://%s:%s", host, port)
-        await asyncio.Future()
+
+    async def _serve_bound(bind_host: str) -> None:
+        async with websockets.serve(
+            _handler,
+            bind_host,
+            port,
+            ping_interval=20,
+            ping_timeout=40,
+            max_size=12 * 1024 * 1024,
+            **_ws_create_server_kwargs(bind_host),
+        ):
+            log.info("pi_runtime listening on ws://%s", _format_listen_url(bind_host, port))
+            await asyncio.Future()
+
+    try:
+        await _serve_bound(host)
+    except OSError as e:
+        if host in ("::", "::0"):
+            log.warning(
+                "bind on %s failed (%s); falling back to 0.0.0.0 (IPv4 only)",
+                _format_listen_url(host, port),
+                e,
+            )
+            await _serve_bound("0.0.0.0")
+        else:
+            raise

@@ -72,7 +72,7 @@ That means the environment was created **without pip** (broken/minimal venv) or 
 Always **activate the venv** first, then:
 
 ```bash
-export PI_RUNTIME_HOST=0.0.0.0
+export PI_RUNTIME_HOST=::
 export PI_RUNTIME_PORT=8765
 python -m pi_runtime
 ```
@@ -89,7 +89,7 @@ python3 -m pi_runtime
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `PI_RUNTIME_HOST` | `0.0.0.0` | Bind address |
+| `PI_RUNTIME_HOST` | `::` | Bind address. **`::`** listens on **IPv6 and IPv4** (dual-stack on typical Linux). Use `0.0.0.0` for IPv4-only. If `::` fails to bind, the server falls back to `0.0.0.0`. |
 | `PI_RUNTIME_PORT` | `8765` | TCP port |
 | `PI_FAILSAFE_S` | `8.0` | No valid brain ping → failsafe |
 | `PI_VOICE_INTERRUPT` | `1` | `0` to disable mic barge-in during TTS playback |

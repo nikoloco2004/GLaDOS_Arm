@@ -21,7 +21,6 @@ from robot_link.messages import TtsPcmPayload
 
 log = logging.getLogger(__name__)
 
-_ollama_chat_url: str | None = None
 _tts_model: Any = None
 _system_prompt_cache: str | None = None
 
@@ -44,12 +43,22 @@ def _append_turn(user_text: str, assistant_text: str) -> None:
     _chat_history.append({"role": "assistant", "content": assistant_text})
 
 
+def _ollama_base_url() -> str:
+    """Ollama listen URL (no path). Accepts OLLAMA_URL or OLLAMA_HOST (some env files used the latter)."""
+    raw = (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or "").strip()
+    if not raw:
+        return "http://127.0.0.1:11434"
+    if not (raw.startswith("http://") or raw.startswith("https://")):
+        log.warning(
+            "OLLAMA_URL/OLLAMA_HOST must start with http:// or https:// (got %r); using http://127.0.0.1:11434",
+            raw[:80],
+        )
+        return "http://127.0.0.1:11434"
+    return raw.rstrip("/")
+
+
 def _chat_url() -> str:
-    global _ollama_chat_url
-    if _ollama_chat_url is None:
-        base = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-        _ollama_chat_url = f"{base}/api/chat"
-    return _ollama_chat_url
+    return f"{_ollama_base_url()}/api/chat"
 
 
 def _ollama_model() -> str:
@@ -109,8 +118,21 @@ def _ollama_reply_sync(user_text: str) -> str:
         ],
         "options": _ollama_extra_options(),
     }
-    r = httpx.post(_chat_url(), json=payload, timeout=120.0)
-    r.raise_for_status()
+    url = _chat_url()
+    r = httpx.post(url, json=payload, timeout=120.0)
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            hint = (
+                f"Ollama returned 404 at {url!r}. "
+                f"If the model is missing, run: ollama pull {_ollama_model()}"
+            )
+            body = (e.response.text or "")[:400]
+            if body:
+                hint = f"{hint} — server said: {body}"
+            raise RuntimeError(hint) from e
+        raise
     j = r.json()
     msg = j.get("message") or {}
     content = msg.get("content", "")

@@ -50,7 +50,8 @@ Audio should play on the **Pi** speaker after a short delay.
 |----------|--------|---------|
 | `PI_VOICE_LOOP` | Pi | `0` to disable stdin → `user_text` (default `1`). |
 | `PI_WS_URL` | PC | WebSocket URL of the Pi. |
-| `OLLAMA_URL` | PC | Ollama base, default `http://127.0.0.1:11434`. |
+| `OLLAMA_URL` | PC | Ollama base (no path), default `http://127.0.0.1:11434`. Do **not** set `OLLAMA_URL=` empty in `brain.env`. |
+| `OLLAMA_HOST` | PC | Same as `OLLAMA_URL` if `OLLAMA_URL` is unset (alias for confused naming). |
 | `OLLAMA_MODEL` | PC | Default **`llama3.2`** (3B, matches upstream `glados_config.yaml`). Use `llama3.2:1b` only if Ollama runs on the Pi itself. |
 | `OLLAMA_CHAT_HISTORY_MAX` | PC | Max past messages to send (user+assistant pairs), default `24`. |
 | `OLLAMA_NUM_CTX` | PC | Context length for Ollama, default `8192`. |

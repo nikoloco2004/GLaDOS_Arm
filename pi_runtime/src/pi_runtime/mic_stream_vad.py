@@ -20,8 +20,8 @@ except ImportError as e:  # pragma: no cover
 
 log = logging.getLogger(__name__)
 
-# PortAudio: int index or ALSA logical name (pulse/default = PipeWire/Pulse; fixes RMS=0 vs bare hw:*).
-InputDeviceSpec: TypeAlias = int | str
+# int index; ALSA logical name if PortAudio exposes it; None = host default input (device=None).
+InputDeviceSpec: TypeAlias = int | str | None
 
 
 def mic_mode_wants_continuous_stream() -> bool:
@@ -276,11 +276,54 @@ def _default_int_input_device() -> int:
     return def_idx
 
 
+def _resolve_logical_input(spec: str) -> InputDeviceSpec:
+    """``pulse``/``default``/etc.: many ALSA builds do not expose that string to PortAudio — find pulse/pipewire or default."""
+    try:
+        sd.query_devices(spec, "input")
+        return spec
+    except Exception:
+        pass
+    needles = ("pulse", "pipewire", "pulseaudio")
+    n = _sd_num_devices()
+    for i in range(n):
+        try:
+            info = sd.query_devices(i)
+        except Exception:
+            continue
+        if int(info.get("max_input_channels") or 0) <= 0:
+            continue
+        name = str(info.get("name", "")).lower()
+        if any(nd in name for nd in needles):
+            log.info(
+                "Pi VAD: %r is not a PortAudio device name here; using index %s — %s",
+                spec,
+                i,
+                info.get("name", "?"),
+            )
+            return i
+    alt = _first_wired_usbish_input_device()
+    if alt is not None:
+        log.warning(
+            "Pi VAD: no pulse/pipewire in PortAudio names; using wired USB index %s (same as PI_MIC_PREFER_USB). "
+            "If capture is still silent, set GLADOS_SD_INPUT_DEVICE to the mic index from query_devices().",
+            alt,
+        )
+        return alt
+    log.warning(
+        "Pi VAD: no pulse/pipewire or USB capture found; using host default (device=None). "
+        "Set GLADOS_SD_INPUT_DEVICE=<index> from: python -c \"import sounddevice as sd; print(sd.query_devices())\"",
+    )
+    return None
+
+
 def mic_input_device_spec() -> InputDeviceSpec:
-    """Input for VAD, /mic, interrupt: int index or ALSA name (e.g. ``pulse`` when hw:* gives RMS=0)."""
+    """Input for VAD, /mic, interrupt: int index, ALSA name, or None for host default."""
     raw = _env_raw_input_device()
     if raw:
-        return _parse_input_spec(raw)
+        spec = _parse_input_spec(raw)
+        if isinstance(spec, str) and spec.lower() in ("pulse", "default", "pipewire", "sysdefault", "dmix"):
+            return _resolve_logical_input(spec)
+        return spec
     return _default_int_input_device()
 
 
@@ -297,7 +340,10 @@ def mic_input_device_index() -> int:
 
 def _default_samplerate_for_device(dev: InputDeviceSpec) -> float:
     try:
-        info = sd.query_devices(dev, "input")
+        if dev is None:
+            info = sd.query_devices(None, "input")
+        else:
+            info = sd.query_devices(dev, "input")
         sr = float(info.get("default_samplerate") or 0.0)
         if sr > 0:
             return sr
@@ -466,8 +512,12 @@ def run_vad_stream_thread(
             stream.start()
             set_detector_ref(det)
             try:
-                info = sd.query_devices(dev, "input")
-                in_name = str(info.get("name", "?"))
+                if dev is None:
+                    info = sd.query_devices(None, "input")
+                    in_name = str(info.get("name", "(default input)"))
+                else:
+                    info = sd.query_devices(dev, "input")
+                    in_name = str(info.get("name", "?"))
             except Exception:
                 in_name = "?"
             log.info(
@@ -482,6 +532,10 @@ def run_vad_stream_thread(
                     "Pi VAD: ALSA logical input %r (PipeWire/Pulse). If hw:* was RMS=0, keep PI_MIC_INPUT_DEVICE=%s.",
                     dev,
                     dev,
+                )
+            elif dev is None:
+                log.info(
+                    "Pi VAD: using PortAudio default input (device=None). Set GLADOS_SD_INPUT_DEVICE=<index> to pin a mic."
                 )
             log.info(
                 "Pi VAD stream: capture @ %.0f Hz block=%d → resampled 16 kHz / 512 for Silero",

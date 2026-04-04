@@ -67,7 +67,9 @@ def _mic_uplink_enabled() -> bool:
 
 def _mic_stream_enabled() -> bool:
     """Continuous Silero VAD → utterance clips → user_audio_pcm (requires personality_core on Pi)."""
-    return os.environ.get("PI_MIC_MODE", "").strip().lower() == "stream"
+    from .mic_stream_vad import mic_mode_wants_continuous_stream
+
+    return mic_mode_wants_continuous_stream()
 
 
 async def _handler(ws: WebSocketServerProtocol) -> None:
@@ -79,7 +81,13 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
     host = socket.gethostname()
     caps = ["stub_commands", "heartbeat", "voice_loop", "voice_interrupt", "mic_uplink"]
     if _mic_stream_enabled() and _mic_uplink_enabled():
-        caps.append("mic_stream_vad")
+        try:
+            from .mic_stream_vad import vad_stream_available
+
+            if vad_stream_available():
+                caps.append("mic_stream_vad")
+        except Exception:
+            pass
     hello = Envelope(
         type="hello",
         payload=HelloPayload(hostname=host, capabilities=caps).to_dict(),
@@ -267,12 +275,16 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
 
                 vad_task = asyncio.create_task(vad_utterance_uplink())
                 log.info(
-                    "Pi mic stream: Silero VAD → utterances → user_audio_pcm (set PI_MIC_MODE=stream off to use only %s)",
+                    "Pi mic stream: always-on Silero VAD → utterances → user_audio_pcm "
+                    "(PI_MIC_MODE=push for %s-only)",
                     os.environ.get("PI_MIC_COMMAND", "/mic"),
                 )
             else:
                 log.warning(
-                    "PI_MIC_MODE=stream but VAD model missing; install personality_core on Pi and run: python -m glados.cli download"
+                    "Continuous mic requested (default) but VAD model missing; "
+                    "install personality_core on Pi and run: cd personality_core && python -m glados.cli download "
+                    "(or set PI_MIC_MODE=push to use only %s)",
+                    os.environ.get("PI_MIC_COMMAND", "/mic"),
                 )
         except Exception as e:
             log.warning("VAD mic stream not started: %s", e)

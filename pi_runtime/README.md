@@ -72,10 +72,19 @@ That means the environment was created **without pip** (broken/minimal venv) or 
 Always **activate the venv** first, then:
 
 ```bash
-export PI_RUNTIME_HOST=::
+export PI_RUNTIME_HOST=0.0.0.0
 export PI_RUNTIME_PORT=8765
 python -m pi_runtime
 ```
+
+### Always-on microphone (default)
+
+By default the Pi tries **continuous Silero VAD** on the default input: speech is segmented and sent as `user_audio_pcm` to the PC brain (no need to type `/mic`). Requires **`personality_core`** + **`python -m glados.cli download`** on the Pi (see `scripts/pi_setup_mic_stream.sh`).
+
+- **Push-to-talk only:** `export PI_MIC_MODE=push` before `python -m pi_runtime` (then use `/mic` as before).
+- **Disable mic uplink entirely:** `export PI_MIC_UPLINK=0`.
+
+IPv6 dual-stack: use `export PI_RUNTIME_HOST=::` if you prefer (see env table below).
 
 **No venv** (not recommended): you can run from source without installing, but you must set `PYTHONPATH` to both `src` trees:
 
@@ -99,9 +108,11 @@ python3 -m pi_runtime
 | `PI_INTERRUPT_RMS` | `0.028` | RMS threshold; raise if false triggers, lower if too hard to interrupt |
 | `PI_INTERRUPT_HITS` | `4` | Consecutive loud blocks required before stop |
 | `PI_INTERRUPT_BLOCKSIZE` | `512` | Input block size for RMS |
-| `PI_MIC_COMMAND` | `/mic` | Type this + Enter to record Pi mic → PC ASR (`user_audio_pcm`) |
+| `PI_MIC_MODE` | *(on)* | **Default: continuous VAD** (`user_audio_pcm` segments). Set **`push`** (or `ptt`, `off`, `0`) for **`/mic` only**. |
+| `PI_MIC_COMMAND` | `/mic` | Push-to-talk: type this + Enter → fixed-length capture |
 | `PI_MIC_SECONDS` | `5` | Seconds of mic capture per `/mic` |
-| `PI_MIC_UPLINK` | `1` | `0` to disable `/mic` (typing only) |
+| `PI_MIC_UPLINK` | `1` | `0` to disable mic uplink (typing only) |
+| `PI_MIC_STREAM_MIN_MS` / `PI_MIC_STREAM_MAX_MS` | `200` / `30000` | VAD utterance length limits (continuous mode) |
 
 Wire `executor.py` to `glados_arm` when ready.
 

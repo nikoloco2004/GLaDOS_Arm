@@ -164,7 +164,9 @@ def _default_input_sr() -> float:
 
 def _mic_stream_capture_active() -> bool:
     """ALSA usually allows one InputStream per device; VAD stream already holds the mic."""
-    return os.environ.get("PI_MIC_MODE", "").strip().lower() == "stream"
+    from .mic_stream_vad import mic_mode_wants_continuous_stream
+
+    return mic_mode_wants_continuous_stream()
 
 
 def mic_interrupt_monitor(stop_event: threading.Event, playback_done: threading.Event) -> None:

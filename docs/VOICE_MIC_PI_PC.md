@@ -14,31 +14,26 @@ Same as the text voice loop: `python -m pi_runtime` with venv, `PI_RUNTIME_HOST`
 
 ## Pi: how to talk
 
-### Push-to-talk (default)
+### Continuous listen (Silero VAD) — **default**
 
-On the SSH terminal where `pi_runtime` runs, **type the mic command and press Enter** (not the message itself):
+The mic stays open: **Silero VAD** (same ONNX as full Glados) runs on 32 ms frames at 16 kHz. After **~640 ms** of silence, each utterance is sent as **`user_audio_pcm`** (16 kHz float32) to the PC for ASR.
+
+**Pi requirements (one-time):**
+
+- From repo root: **`bash scripts/pi_setup_mic_stream.sh`** (or manually: `pip install -e ./personality_core[cpu]` and `cd personality_core && python -m glados.cli download` so `silero_vad_16k_op15.onnx` exists).
+
+If the VAD model is missing, `pi_runtime` logs a warning and you can still use push-to-talk below.
+
+**Opt out (push-to-talk only):** `export PI_MIC_MODE=push` before `python -m pi_runtime`.
+
+### Push-to-talk (`/mic`)
+
+With **`PI_MIC_MODE=push`** (or if continuous mode could not start), on the SSH terminal **type the mic command and press Enter**:
 
 - Default command: **`/mic`**
 - The Pi records for **`PI_MIC_SECONDS`** seconds (default **5**), then uploads PCM to the PC.
 
-Example:
-
-```text
-/mic
-```
-
-Speak during the recording window. You should see a log like `pi → brain user_audio_pcm: … samples @ … Hz`.
-
-### Continuous listen (Silero VAD)
-
-Set **`PI_MIC_MODE=stream`** on the Pi so the mic stays open: **Silero VAD** (same ONNX as full Glados) runs on 32 ms frames at 16 kHz. Random noise does not trigger uploads; **speech** does. After **~640 ms** of silence, the completed utterance is sent as **`user_audio_pcm`** (16 kHz float32), same as `/mic`.
-
-**Pi requirements for stream mode:**
-
-- Install **`personality_core`** editable on the Pi (or ensure `glados` is importable) and run **`python -m glados.cli download`** so `silero_vad_16k_op15.onnx` is present.
-- **`onnxruntime`** (pulled in by `personality_core`).
-
-You can still use **`/mic`** for fixed-length clips when stream mode is enabled.
+When continuous mode is on, **`/mic`** still works for a fixed-length clip.
 
 **ALSA / one mic handle:** Many Pi USB mics allow only **one** open capture stream. Stream mode keeps that handle for VAD, so a **second** mic open (e.g. old “voice interrupt” during TTS) fails with `Device unavailable`. In stream mode, **barge-in** reuses the same VAD stream (Silero speech frames), not a second `InputStream`.
 
@@ -56,7 +51,7 @@ You can still use **`/mic`** for fixed-length clips when stream mode is enabled.
 |----------|--------|---------|
 | `PI_MIC_COMMAND` | Pi | Trigger string (default `/mic`). |
 | `PI_MIC_SECONDS` | Pi | Record length in seconds (default `5`, clamped ~0.5–60). |
-| `PI_MIC_MODE` | Pi | `stream` = continuous Silero VAD → utterances; unset = push-to-talk only. |
+| `PI_MIC_MODE` | Pi | **Default:** continuous VAD. Set **`push`** / **`ptt`** / **`0`** / **`off`** for **`/mic`** only. |
 | `PI_MIC_STREAM_MIN_MS` | Pi | Min utterance length (default `200`) to drop noise blips. |
 | `PI_MIC_STREAM_MAX_MS` | Pi | Max utterance length (default `30000`) before force-send. |
 | `PI_STREAM_VOICE_DURING_TTS` | Pi | `1` = allow VAD segments + mic barge-in **during** TTS (headset); default **off** (avoids speaker echo). |
@@ -66,6 +61,6 @@ You can still use **`/mic`** for fixed-length clips when stream mode is enabled.
 
 ## Notes
 
-- **Push-to-talk** (`/mic`) sends a **fixed-length** clip; **stream** mode sends **VAD-segmented** utterances continuously.
+- **Default** sends **VAD-segmented** utterances continuously; **`/mic`** sends a **fixed-length** clip (always available when mic uplink is on).
 - **Sample rate:** capture may use the device default; VAD always sees **16 kHz** after resampling. The brain **resamples to 16 kHz** for ASR if needed.
 - **Failsafe:** long ASR + LLM can exceed `PI_FAILSAFE_S`; increase it on the Pi if you see spurious failsafes during recognition.

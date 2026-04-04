@@ -19,6 +19,20 @@ except ImportError as e:  # pragma: no cover
 
 log = logging.getLogger(__name__)
 
+
+def mic_mode_wants_continuous_stream() -> bool:
+    """Whether to run always-on mic + Silero VAD (default: yes).
+
+    Opt out with **PI_MIC_MODE=push** (or ``ptt``, ``0``, ``false``, ``off``) to use only ``/mic``
+    push-to-talk. Any other value (including unset, ``stream``, ``1``) tries continuous capture when
+    the VAD model is installed.
+    """
+    raw = os.environ.get("PI_MIC_MODE", "").strip().lower()
+    if raw in ("push", "ptt", "ptt_only", "0", "false", "no", "off"):
+        return False
+    return True
+
+
 # Match glados.core.speech_listener + sounddevice_io defaults
 _VAD_SIZE_MS = 32
 _BUFFER_MS = 800

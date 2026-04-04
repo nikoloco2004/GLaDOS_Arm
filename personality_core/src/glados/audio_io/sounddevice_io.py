@@ -66,6 +66,16 @@ def _env_float(name: str) -> float | None:
         return None
 
 
+def _tts_trailing_silence_ms() -> float:
+    """Silence appended after each TTS clip (natural pause between sentences). 0 to disable."""
+    raw = os.environ.get("GLADOS_TTS_TRAILING_SILENCE_MS", "200").strip()
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        logger.warning("GLADOS_TTS_TRAILING_SILENCE_MS must be a number, using 200")
+        return 200.0
+
+
 def _samplerate_is_supported(device: int | None, sr: float, *, is_input: bool) -> bool:
     """True if PortAudio can open this device at sr.
 
@@ -311,6 +321,18 @@ class SoundDeviceAudioIO:
         if float(sample_rate) != out_sr:
             play_data = _resample_linear_mono(play_data, float(sample_rate), out_sr)
             logger.debug("Resampled playback {} Hz -> {} Hz for PortAudio device", sample_rate, out_sr)
+        silence_ms = _tts_trailing_silence_ms()
+        if silence_ms > 0:
+            n_pad = int(round(float(out_sr) * silence_ms / 1000.0))
+            if n_pad > 0:
+                play_data = np.concatenate(
+                    [play_data, np.zeros(n_pad, dtype=np.float32)]
+                )
+                logger.debug(
+                    "Appended {:.0f} ms trailing silence ({} samples) for sentence spacing",
+                    silence_ms,
+                    n_pad,
+                )
         logger.debug(
             "Playing audio with sample rate: {} Hz (device), length: {} samples",
             out_sr,

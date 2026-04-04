@@ -72,7 +72,8 @@ Audio should play on the **Pi** speaker after a short delay.
 | `GLADOS_VOICE` | PC | TTS voice, default `glados`. |
 | `GLADOS_CHAT_SYSTEM_PROMPT` | PC | Full system prompt override (optional). |
 | `GLADOS_SYSTEM_PROMPT_FILE` | PC | Path to a `.txt` system prompt (optional). |
-| `PI_VOICE_INTERRUPT` | Pi | `0` to disable barge-in (default `1`). |
+| `PI_VOICE_INTERRUPT` | Pi | `0` to disable mic barge-in (default `1`). |
+| `PI_STDIN_INTERRUPT` | Pi | `0` to disable stop-on-new-line while TTS plays (default `1`). |
 | `PI_SD_INPUT_DEVICE` / `GLADOS_SD_INPUT_DEVICE` | Pi | PortAudio mic index for interrupt (default device). |
 | `PI_INTERRUPT_DELAY_MS` | Pi | Ms after TTS starts before listening (default `280`). |
 | `PI_INTERRUPT_RMS` | Pi | Loudness threshold (default `0.028`). |
@@ -96,6 +97,7 @@ export PI_AUDIO_OUTPUT_SR=48000
 
 - **GLaDOS `start` on the PC** is separate: use it for mic + typing on the **PC**. The voice loop is **Pi keyboard → Pi speaker** via the PC brain.
 - **Speech interrupt (Pi mic):** While `tts_pcm` plays on the Pi speaker, `pi_runtime` opens the **Pi default input** (USB mic / headset) and uses RMS energy + a short grace delay (`PI_INTERRUPT_DELAY_MS`) to detect barge-in. When you speak, it calls `sd.stop()` (same idea as PC `glados`) and sends **`user_interrupt`** to the brain (logged only for now). Tune **`PI_INTERRUPT_RMS`** / **`PI_INTERRUPT_HITS`** if the speaker feeds back into the mic or if it is too insensitive. Disable with **`PI_VOICE_INTERRUPT=0`**.
+- **Typing interrupt (Pi SSH):** When you **press Enter on a new line** while GLaDOS is still speaking, the Pi sets the same stop flag as the mic path so **`sd.stop()`** runs immediately. Your new line is still sent to the brain as `user_text`. Disable with **`PI_STDIN_INTERRUPT=0`**.
 - **Conversation memory:** `brain_runtime` keeps a **sliding window** of past user/assistant turns (same idea as the full app) so GLaDOS does not “reset” personality every line.
 - To use the **full** `pi_potato.yaml` persona for this path, set `GLADOS_CHAT_SYSTEM_PROMPT` to the same system block (or extend `pipeline.py` to load YAML later).
 - **Large frames:** WebSocket max message size is raised to 12 MiB for PCM payloads.

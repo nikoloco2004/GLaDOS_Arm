@@ -93,6 +93,7 @@ python3 -m pi_runtime
 | `PI_RUNTIME_PORT` | `8765` | TCP port |
 | `PI_FAILSAFE_S` | `8.0` | No valid brain ping → failsafe |
 | `PI_VOICE_INTERRUPT` | `1` | `0` to disable mic barge-in during TTS playback |
+| `PI_STDIN_INTERRUPT` | `1` | `0` to disable stopping speech when you type a new line while she talks |
 | `PI_SD_INPUT_DEVICE` / `GLADOS_SD_INPUT_DEVICE` | default | PortAudio input index for interrupt detection |
 | `PI_INTERRUPT_DELAY_MS` | `280` | Wait after TTS starts before listening (reduces speaker→mic feedback) |
 | `PI_INTERRUPT_RMS` | `0.028` | RMS threshold; raise if false triggers, lower if too hard to interrupt |

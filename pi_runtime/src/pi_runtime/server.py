@@ -42,6 +42,15 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _stdin_interrupt_enabled() -> bool:
+    return os.environ.get("PI_STDIN_INTERRUPT", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
 async def _handler(ws: WebSocketServerProtocol) -> None:
     peer = ws.remote_address
     log.info("brain connected: %s", peer)
@@ -79,6 +88,14 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
 
     hb_task = asyncio.create_task(heartbeat_loop())
 
+    # Shared with tts_pcm playback: typing a new line sets this to stop current speech (barge-in).
+    playback_stop: dict[str, threading.Event | None] = {"current": None}
+
+    def request_playback_stop() -> None:
+        ev = playback_stop["current"]
+        if ev is not None:
+            ev.set()
+
     async def stdin_to_brain() -> None:
         """Forward lines typed on the Pi (SSH/console) to the brain as user_text."""
         loop = asyncio.get_event_loop()
@@ -89,6 +106,8 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
             text = line.strip()
             if not text:
                 continue
+            if _stdin_interrupt_enabled():
+                request_playback_stop()
             cid = str(time.time())
             env = Envelope(
                 type="user_text",
@@ -134,7 +153,10 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                         correlation_id=str(p.get("correlation_id", "")),
                     )
                     samples = pcm_b64_to_numpy(payload.pcm_b64)
+                    # Stop any clip already playing (e.g. user typed again before this frame arrived).
+                    request_playback_stop()
                     stop_ev = threading.Event()
+                    playback_stop["current"] = stop_ev
                     done_ev = threading.Event()
                     mic_thread = threading.Thread(
                         target=mic_interrupt_monitor,
@@ -154,9 +176,11 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                     finally:
                         done_ev.set()
                         mic_thread.join(timeout=2.0)
+                        if playback_stop["current"] is stop_ev:
+                            playback_stop["current"] = None
 
                     if interrupted:
-                        log.info("tts_pcm interrupted (barge-in)")
+                        log.info("tts_pcm interrupted (stdin, mic, or overlapping clip)")
                         try:
                             ui = Envelope(
                                 type="user_interrupt",

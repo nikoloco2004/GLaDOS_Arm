@@ -9,6 +9,7 @@ import uuid
 
 import websockets
 from websockets.client import WebSocketClientProtocol
+from websockets.exceptions import ConnectionClosed
 
 from robot_link import Envelope
 from robot_link.messages import CommandPayload, HeartbeatAckPayload
@@ -38,6 +39,17 @@ class BrainClient:
                     delay = self.reconnect_base_s
                     pipeline.reset_conversation()
                     await self._session(ws)
+            except ConnectionClosed as e:
+                # Pi allows only one brain socket; extra clients get 1008 — do not reconnect forever.
+                if e.code == 1008:
+                    log.error(
+                        "Pi closed the WebSocket (code 1008): only one brain connection at a time. "
+                        "Stop duplicate brain_runtime terminals, Cursor tasks, or other clients, then run one brain."
+                    )
+                    raise SystemExit(2) from e
+                log.warning("disconnected: %s — retry in %.1fs", e, delay)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, self.reconnect_max_s)
             except Exception as e:
                 log.warning("disconnected: %s — retry in %.1fs", e, delay)
                 await asyncio.sleep(delay)

@@ -192,9 +192,10 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
             if not line:
                 break
             text = line.strip()
+            # Interrupt on Enter even with an empty line (user expects blank line to cut TTS).
+            await stdin_interrupt_and_stop_playback()
             if not text:
                 continue
-            await stdin_interrupt_and_stop_playback()
 
             if _mic_uplink_enabled() and text.lower() == mic_cmd:
                 sec = _env_float("PI_MIC_SECONDS", 5.0)

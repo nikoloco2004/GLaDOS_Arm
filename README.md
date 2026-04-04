@@ -8,6 +8,123 @@ Modular control stack: **Python on Raspberry Pi** (kinematics, IK, mapping) and 
 
 ---
 
+## 0. Installation (if you are new to this stack)
+
+These steps assume you can open a **terminal** (PowerShell on Windows, Terminal on Linux/Mac) and paste commands. You do **not** need to memorize anything—copy each block in order, change only paths and the Pi’s address where noted.
+
+### 0.1 What to install first (once per computer)
+
+| Tool | What it is | How to get it |
+|------|------------|----------------|
+| **Git** | Downloads and updates this project from GitHub | **Windows:** [git-scm.com/download/win](https://git-scm.com/download/win) — installer defaults are fine. **Linux:** `sudo apt install git` (Debian/Ubuntu). **macOS:** Xcode Command Line Tools or [git-scm.com](https://git-scm.com/download/mac). |
+| **Python 3.11+** | The language the Python parts of this repo use | **Windows:** [python.org/downloads](https://www.python.org/downloads/) — during setup, enable **Add python.exe to PATH**. **Linux:** `sudo apt install python3 python3-venv`. **macOS:** `brew install python@3.12` or python.org. |
+| **Ollama** (brain PC only) | Runs the local LLM the assistant talks to | [ollama.com/download](https://ollama.com/download) — install, then in a terminal run e.g. `ollama pull llama3.2` once. |
+
+After installing Python, check that it works:
+
+```bash
+python --version
+```
+
+You should see **3.11** or newer. On Linux, the command may be `python3` instead of `python`.
+
+### 0.2 Get a copy of this repository
+
+Replace the URL with **your** fork or clone URL if different:
+
+```bash
+git clone https://github.com/YOUR_USERNAME/GLaDOS_Arm.git
+cd GLaDOS_Arm
+```
+
+**Windows tip:** you can use **Git Bash**, **PowerShell**, or **cmd**. Stay in the same folder (`GLaDOS_Arm`) for all commands below unless a step says to `cd` somewhere else.
+
+### 0.3 What is a virtual environment?
+
+This repo uses a **venv** (a folder, usually `personality_core/.venv`) that holds Python packages **only for this project**. That avoids breaking your system Python. You create the venv **once**; the commands below install packages **into** it.
+
+### 0.4 Split brain: **PC / laptop** (runs the AI; Pi runs `pi_runtime`)
+
+Use this when the **Raspberry Pi** is already running **`pi_runtime`** and you want this machine to be the “brain” (ASR, LLM, TTS).
+
+**First time on this PC** — open **PowerShell**, then (change `C:\path\to\GLaDOS_Arm` to your real folder):
+
+```powershell
+cd C:\path\to\GLaDOS_Arm
+
+python -m venv personality_core\.venv
+.\personality_core\.venv\Scripts\python.exe -m pip install -U pip
+.\personality_core\.venv\Scripts\python.exe -m pip install -e .\robot_link
+.\personality_core\.venv\Scripts\python.exe -m pip install -e .\brain_runtime
+.\personality_core\.venv\Scripts\python.exe -m pip install -e "personality_core[cpu]"
+
+.\personality_core\.venv\Scripts\python.exe -m glados.cli download
+
+Copy-Item configs\brain.env.example configs\brain.env
+notepad configs\brain.env
+```
+
+In `configs\brain.env`, set **`PI_WS_URL`** to your Pi’s WebSocket, e.g. `PI_WS_URL=ws://192.168.1.50:8765` or `ws://yourpi.local:8765`. Save the file.
+
+**Every time you start the brain** (after the one-time setup above):
+
+```powershell
+cd C:\path\to\GLaDOS_Arm
+. .\scripts\brain_env.ps1
+cd personality_core
+..\.venv\Scripts\python.exe -m brain_runtime
+```
+
+Or from repo root in one step:
+
+```powershell
+cd C:\path\to\GLaDOS_Arm
+. .\scripts\run_brain_runtime.ps1
+```
+
+**Linux / macOS** (first time):
+
+```bash
+cd /path/to/GLaDOS_Arm
+python3 -m venv personality_core/.venv
+source personality_core/.venv/bin/activate
+pip install -U pip
+pip install -e ./robot_link
+pip install -e ./brain_runtime
+pip install -e "personality_core[cpu]"
+python -m glados.cli download
+cp configs/brain.env.example configs/brain.env
+nano configs/brain.env   # set PI_WS_URL, then save
+```
+
+**Linux / macOS** (each run):
+
+```bash
+cd /path/to/GLaDOS_Arm
+source scripts/brain_env.sh
+cd personality_core
+python -m brain_runtime
+```
+
+**Important:** run `python -m brain_runtime` from inside **`personality_core/`**, not from the repo root—otherwise the folder named `brain_runtime/` shadows the Python package. More detail and hotswapping between PCs: [`docs/LAPTOP_BRAIN_SETUP.md`](docs/LAPTOP_BRAIN_SETUP.md).
+
+### 0.5 Split brain: **Raspberry Pi** (hardware + `pi_runtime`)
+
+The Pi needs its own install (USB mic, GPIO, etc.). Follow **§7** below and the Pi scripts under [`scripts/`](scripts/). For the WebSocket bridge only: install `pi_runtime` from this repo (see [`pi_runtime/README.md`](pi_runtime/README.md)).
+
+### 0.6 **Arm / kinematics only** (no voice stack)
+
+If you only need FK/IK and serial to the Arduino from a machine that already has Python:
+
+```bash
+cd /path/to/GLaDOS_Arm
+pip install -r requirements.txt
+```
+
+Use a venv if you prefer: `python -m venv .venv` then `source .venv/bin/activate` (Linux/macOS) or `.venv\Scripts\activate` (Windows), then `pip install -r requirements.txt`. See **§6** for CLI examples.
+
+---
+
 ## 1. Architecture (short)
 
 | Layer | Role |

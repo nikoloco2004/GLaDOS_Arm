@@ -20,6 +20,7 @@ except ImportError as e:  # pragma: no cover
 log = logging.getLogger(__name__)
 
 _cached_out_sr: float | None = None
+_cached_out_channels: int | None = None  # 1 or 2 (Bluetooth A2DP often requires stereo)
 
 
 def _env_output_device() -> int | None:
@@ -66,7 +67,8 @@ def _resample_linear_mono(
     return np.interp(t_new, t_old, x).astype(np.float32)
 
 
-def _sr_supported(sr: float) -> bool:
+def _probe_output_stream(sr: float, channels: int) -> bool:
+    """Return True if PortAudio can open this output device at sr/channels (Bluetooth often needs stereo)."""
     dev = _output_dev()
 
     def _out_cb(outdata: NDArray[np.float32], frames: int, t: Any, st: Any) -> None:
@@ -76,7 +78,7 @@ def _sr_supported(sr: float) -> bool:
         stream = sd.OutputStream(
             device=dev,
             samplerate=sr,
-            channels=1,
+            channels=channels,
             callback=_out_cb,
             blocksize=1024,
         )
@@ -104,19 +106,42 @@ def _ordered_sr_candidates() -> list[float]:
 
 
 def resolve_output_samplerate() -> float:
-    """Pick a rate ALSA/PortAudio accepts; cache result."""
-    global _cached_out_sr
-    if _cached_out_sr is not None:
+    """Pick a rate (and channel count) ALSA/PortAudio accepts; cache result."""
+    global _cached_out_sr, _cached_out_channels
+    if _cached_out_sr is not None and _cached_out_channels is not None:
         return _cached_out_sr
+
+    forced_ch = os.environ.get("PI_AUDIO_OUTPUT_CHANNELS", "").strip()
+    ch_order: list[int]
+    if forced_ch in ("1", "2"):
+        ch_order = [int(forced_ch)]
+    else:
+        # Mono first (USB speakers); stereo second (many Bluetooth A2DP sinks reject mono streams).
+        ch_order = [1, 2]
+
     for sr in _ordered_sr_candidates():
-        if _sr_supported(sr):
-            _cached_out_sr = float(sr)
-            log.info("Pi TTS playback using output sample rate %.0f Hz (device %s)", _cached_out_sr, _output_dev())
-            return _cached_out_sr
+        for ch in ch_order:
+            if _probe_output_stream(sr, ch):
+                _cached_out_sr = float(sr)
+                _cached_out_channels = ch
+                log.info(
+                    "Pi TTS playback: %.0f Hz, %d ch (device %s)",
+                    _cached_out_sr,
+                    ch,
+                    _output_dev(),
+                )
+                return _cached_out_sr
     raise RuntimeError(
-        "No working output sample rate. Try: export PI_AUDIO_OUTPUT_SR=48000 "
-        "(or 44100), and set GLADOS_SD_OUTPUT_DEVICE to the correct PortAudio index."
+        "No working output sample rate/channel layout. Bluetooth often needs stereo: "
+        "try export PI_AUDIO_OUTPUT_SR=48000 and/or PI_AUDIO_OUTPUT_CHANNELS=2, "
+        "and set GLADOS_SD_OUTPUT_DEVICE (or PI_SD_OUTPUT_DEVICE) to the PortAudio index "
+        "for your AirPods (run: python -c \"import sounddevice as sd; print(sd.query_devices())\")."
     )
+
+
+def _output_channel_count() -> int:
+    resolve_output_samplerate()
+    return _cached_out_channels if _cached_out_channels is not None else 1
 
 
 def pcm_b64_to_numpy(pcm_b64: str) -> NDArray[np.float32]:
@@ -229,6 +254,7 @@ def play_float32_mono_interruptible(
     if samples.size == 0:
         return False
     out_sr = resolve_output_samplerate()
+    out_ch = _output_channel_count()
     if abs(float(sample_rate) - out_sr) < 0.5:
         play_data = np.asarray(samples, dtype=np.float32).reshape(-1)
     else:
@@ -250,16 +276,24 @@ def play_float32_mono_interruptible(
         if remaining <= 0:
             raise sd.CallbackStop
         n = min(frames, remaining)
-        outdata[:n, 0] = play_data[pos : pos + n]
-        if n < frames:
-            outdata[n:, 0] = 0
+        chunk = play_data[pos : pos + n]
+        if out_ch == 1:
+            outdata[:n, 0] = chunk
+            if n < frames:
+                outdata[n:, 0] = 0
+        else:
+            outdata[:n, 0] = chunk
+            outdata[:n, 1] = chunk
+            if n < frames:
+                outdata[n:, 0] = 0
+                outdata[n:, 1] = 0
         pos += n
 
     try:
         with sd.OutputStream(
             device=dev,
             samplerate=out_sr,
-            channels=1,
+            channels=out_ch,
             dtype="float32",
             blocksize=blocksize,
             callback=callback,

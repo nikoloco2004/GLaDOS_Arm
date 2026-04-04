@@ -58,6 +58,17 @@ When continuous mode is on, **`/mic`** still works for a fixed-length clip.
 | `PI_MIC_UPLINK` | Pi | Set `0` to disable mic uplink (typing only). |
 | `GLADOS_SD_INPUT_DEVICE` / `PI_SD_INPUT_DEVICE` | Pi | PortAudio **input** index for the mic. |
 | `GLADOS_ASR_ENGINE` | PC | `tdt` (default) or `ctc` — same as full Glados ASR. |
+| `GLADOS_SD_OUTPUT_DEVICE` / `PI_SD_OUTPUT_DEVICE` | Pi | PortAudio **output** index for TTS (set when switching USB speaker ↔ Bluetooth). |
+| `PI_AUDIO_OUTPUT_SR` | Pi | Force sample rate (e.g. `48000`) if probing fails. |
+| `PI_AUDIO_OUTPUT_CHANNELS` | Pi | `1` or `2` to force; default probes mono then **stereo** (many **Bluetooth** sinks reject mono). |
+
+### Bluetooth headphones / AirPods on the Pi
+
+After pairing, the **default** ALSA/PulseAudio output may still point at HDMI or an old USB card. List devices:
+
+`python -c "import sounddevice as sd; print(sd.query_devices())"`
+
+Set **`GLADOS_SD_OUTPUT_DEVICE=<index>`** for the A2DP sink. **`pi_runtime`** probes **mono, then stereo** output; Bluetooth often only accepts **stereo** (the runtime duplicates mono to L/R). If playback still fails, try **`export PI_AUDIO_OUTPUT_SR=48000`**.
 
 ## Notes
 

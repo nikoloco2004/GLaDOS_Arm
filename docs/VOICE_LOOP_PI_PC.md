@@ -70,6 +70,7 @@ Audio should play on the **Pi** speaker after a short delay.
 | `OLLAMA_CHAT_HISTORY_MAX` | PC | Max past messages to send (user+assistant pairs), default `24`. |
 | `OLLAMA_NUM_CTX` | PC | Context length for Ollama, default `8192`. |
 | `GLADOS_VOICE` | PC | TTS voice, default `glados`. |
+| `GLADOS_TTS_SPOKEN_TEXT` | PC | Default `1`: run reply through `SpokenTextConverter` so digits like `19` are spoken as *nineteen* (same as full `glados`). Set `0` to feed raw LLM text to TTS. |
 | `GLADOS_CHAT_SYSTEM_PROMPT` | PC | Full system prompt override (optional). |
 | `GLADOS_SYSTEM_PROMPT_FILE` | PC | Path to a `.txt` system prompt (optional). |
 | `PI_VOICE_INTERRUPT` | Pi | `0` to disable mic barge-in (default `1`). |

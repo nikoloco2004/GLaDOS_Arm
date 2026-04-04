@@ -22,6 +22,7 @@ from robot_link.messages import TtsPcmPayload
 log = logging.getLogger(__name__)
 
 _tts_model: Any = None
+_spoken_text_converter: Any = None
 _system_prompt_cache: str | None = None
 
 # Sliding window of {user, assistant} pairs so GLaDOS stays in character across turns (matches full glados stack).
@@ -174,9 +175,34 @@ def _get_tts() -> Any:
     return _tts_model
 
 
+def _get_spoken_text_converter() -> Any:
+    """Same as full Glados stack: digits → words so TTS says 'nineteen' not silence/garble on '19'."""
+    global _spoken_text_converter
+    if _spoken_text_converter is None:
+        try:
+            from glados.utils.spoken_text_converter import SpokenTextConverter
+        except ImportError as e:
+            raise ImportError(
+                "GLaDOS spoken text requires personality_core in the same venv: "
+                "pip install -e ../personality_core (from GLaDOS_Arm)"
+            ) from e
+        _spoken_text_converter = SpokenTextConverter()
+    return _spoken_text_converter
+
+
+def _text_for_tts(reply_text: str) -> str:
+    if os.environ.get("GLADOS_TTS_SPOKEN_TEXT", "1").strip().lower() in ("0", "false", "no"):
+        return reply_text
+    spoken = _get_spoken_text_converter().text_to_spoken(reply_text)
+    if spoken != reply_text:
+        log.debug("brain TTS: spoken text differs from raw (digits/symbols normalized)")
+    return spoken
+
+
 def _synthesize_sync(reply_text: str) -> tuple[NDArray[np.float32], int]:
     tts = _get_tts()
-    audio = tts.generate_speech_audio(reply_text)
+    to_speak = _text_for_tts(reply_text)
+    audio = tts.generate_speech_audio(to_speak)
     return audio, int(tts.sample_rate)
 
 

@@ -10,7 +10,7 @@ This path uses the existing WebSocket link:
 
 - **PC:** Ollama running; `ollama pull llama3.2` (default `OLLAMA_MODEL`). A 3050-class GPU runs this comfortably; the old `llama3.2:1b` default was for Pi-local Ollama and drifts on persona.
 - **PC:** `personality_core` installed in the **same** venv as `brain_runtime`, and `python -m glados.cli download` already run (ONNX models).
-- **Pi:** A **venv** (Raspberry Pi OS / Debian blocks system `pip` — PEP 668). From repo root: `python3 -m venv .venv && source .venv/bin/activate && pip install -e ./robot_link -e ./pi_runtime`. See [`pi_runtime/README.md`](../pi_runtime/README.md).
+- **Pi:** A **venv** (Raspberry Pi OS / Debian blocks system `pip` — PEP 668). From repo root: `python3 -m venv .venv && source .venv/bin/activate && python -m pip install -e ./robot_link -e ./pi_runtime`. See [`pi_runtime/README.md`](../pi_runtime/README.md).
 - **Pi:** Audio output works (e.g. `speaker-test` or `aplay`).
 
 ## Run

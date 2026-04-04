@@ -40,10 +40,12 @@ git pull
 - **Windows:** install from [python.org](https://www.python.org/downloads/) or use `winget install Python.Python.3.12`.
 - **Linux:** `sudo apt install python3.11 python3.11-venv` (or your distro’s package).
 
-### 3.3 `uv` (recommended for `personality_core`)
+### 3.3 `uv` (optional; faster installs)
 
-```bash
-# Windows (PowerShell)
+If `uv` is not installed or not on `PATH`, **skip to §3.3a** and use `pip` + `venv` only.
+
+```powershell
+# Windows (PowerShell) — then add the install directory to PATH if the installer says so
 irm https://astral.sh/uv/install.ps1 | iex
 ```
 
@@ -52,6 +54,34 @@ irm https://astral.sh/uv/install.ps1 | iex
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+### 3.3a `personality_core` **without** `uv` (Windows / any OS)
+
+From repo root, after `robot_link` and `brain_runtime` are installed:
+
+```powershell
+cd personality_core
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+pip install -e ".[cpu]"
+python -m glados.cli download
+```
+
+With the venv activated, `glados.exe` is on `PATH`, so you can use `glados download` instead.
+
+Linux/macOS:
+
+```bash
+cd personality_core
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e ".[cpu]"
+python -m glados.cli download
+```
+
+The `[cpu]` extra pulls **onnxruntime** (CPU) for ASR/TTS models.
+
 ### 3.4 Shared packages: `robot_link`, `brain_runtime`, `personality_core`
 
 From **repo root** `GLaDOS_Arm`:
@@ -59,17 +89,33 @@ From **repo root** `GLaDOS_Arm`:
 ```bash
 pip install -e ./robot_link
 pip install -e ./brain_runtime
-cd personality_core
-uv sync
-# or: uv venv && uv pip install -e .
 ```
 
-On Windows, if you prefer `uv` everywhere:
+**With `uv`** (if installed and on `PATH`):
 
-```powershell
+```bash
 cd personality_core
 uv sync
+uv run glados download
 ```
+
+**Without `uv`:** use §3.3a above.
+
+### 3.4a Windows: `pip` user install and `PATH`
+
+If you see **“Defaulting to user installation”** and warnings that `Scripts` is not on `PATH`, either:
+
+- Add this folder to your user **PATH** (version may differ):
+
+  `C:\Users\<you>\AppData\Roaming\Python\Python313\Scripts`
+
+- Or always invoke tools via Python (no PATH change needed):
+
+  ```powershell
+  python -m brain_runtime
+  ```
+
+  After activating `personality_core\.venv`, use `glados ...` or `python -m glados.cli ...` the same way.
 
 ### 3.5 Ollama on the **brain** machine (laptop or main PC)
 
@@ -82,6 +128,8 @@ ollama pull llama3.2:1b
 Match `llm_model` in `configs/pi_potato.yaml` (or your brain-only YAML copy on the PC).
 
 ### 3.6 GLaDOS models (first run on that machine)
+
+Already covered by **`python -m glados.cli download`** in §3.3a, or with `uv`:
 
 ```bash
 cd personality_core

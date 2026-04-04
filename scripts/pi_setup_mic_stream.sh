@@ -57,8 +57,9 @@ echo "==> pip install -e personality_core[cpu]"
 "$PY" -m pip install -e "./personality_core[cpu]"
 
 echo "==> glados.cli download (VAD + assets under personality_core/models/)"
+echo "    Using --sequential to avoid parallel GitHub overload on Raspberry Pi."
 cd "$ROOT/personality_core"
-"$PY" -m glados.cli download
+"$PY" -m glados.cli download --sequential
 cd "$ROOT"
 
 echo "Done. Start pi_runtime with the same venv:"

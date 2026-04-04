@@ -103,6 +103,9 @@ MODEL_DETAILS: dict[FileName, dict[FileURL, FileHash]] = {
     },
 }
 
+# Pi always-on mic only needs this file from MODEL_DETAILS (ASR/TTS run on the PC in split-brain).
+VAD_MODEL_RELPATH = "models/ASR/silero_vad_16k_op15.onnx"
+
 
 async def download_with_progress(
     client: httpx.AsyncClient,
@@ -149,10 +152,15 @@ async def download_with_progress(
 
     except Exception as e:
         progress.update(task_id, status=f"[bold red]Error: {str(e)}")
+        try:
+            if file_path.exists():
+                file_path.unlink()
+        except OSError:
+            pass
         return False
 
 
-async def download_models() -> int:
+async def download_models(*, only_vad: bool = False, sequential: bool = False) -> int:
     """
     Main async controller for downloading all the specified models:
         - ASR model: nemo-parakeet_tdt_ctc_110m.onnx
@@ -160,24 +168,51 @@ async def download_models() -> int:
         - TTS model: glados.onnx
         - Phonemizer model: phomenizer_en.onnx
 
+    Args:
+        only_vad: If True, download only ``silero_vad_16k_op15.onnx`` (Pi split-brain mic stream).
+        sequential: If True, download one file at a time (recommended on Raspberry Pi).
+
     Returns:
         int: Exit code (0 for success, 1 for failure)
     """
+    items = list(MODEL_DETAILS.items())
+    if only_vad:
+        items = [(p, m) for p, m in items if p == VAD_MODEL_RELPATH]
+        if not items:
+            rprint("[bold red]Internal error: VAD model path not in MODEL_DETAILS")
+            return 1
+
+    timeout = httpx.Timeout(connect=60.0, read=900.0, write=60.0, pool=60.0)
+    limits = httpx.Limits(max_connections=4 if sequential else 32, max_keepalive_connections=4)
+
     with Progress(
         TextColumn("[grey50][progress.description]{task.description}"),
         BarColumn(),
         DownloadColumn(),
         TextColumn("  {task.fields[status]}"),
     ) as progress:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            # Create a download task for each file
-            tasks = [
-                asyncio.create_task(
-                    download_with_progress(client, model_info["url"], Path(path), model_info["checksum"], progress)
-                )
-                for path, model_info in MODEL_DETAILS.items()
-            ]
-            results: list[bool] = await asyncio.gather(*tasks)
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=timeout,
+            limits=limits,
+        ) as client:
+            if sequential:
+                results: list[bool] = []
+                for path, model_info in items:
+                    ok = await download_with_progress(
+                        client, model_info["url"], Path(path), model_info["checksum"], progress
+                    )
+                    results.append(ok)
+            else:
+                tasks = [
+                    asyncio.create_task(
+                        download_with_progress(
+                            client, model_info["url"], Path(path), model_info["checksum"], progress
+                        )
+                    )
+                    for path, model_info in items
+                ]
+                results = list(await asyncio.gather(*tasks))
 
     if not all(results):
         rprint("\n[bold red]Some files were not downloaded successfully")
@@ -325,7 +360,17 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Download command
-    subparsers.add_parser("download", help="Download model files")
+    download_parser = subparsers.add_parser("download", help="Download model files")
+    download_parser.add_argument(
+        "--only-vad",
+        action="store_true",
+        help="Only fetch Silero VAD (for Pi always-on mic; brain PC holds ASR/TTS).",
+    )
+    download_parser.add_argument(
+        "--sequential",
+        action="store_true",
+        help="One download at a time (recommended on Raspberry Pi; avoids parallel GitHub overload).",
+    )
 
     # Start command
     start_parser = subparsers.add_parser("start", help="Start GLaDOS voice assistant")
@@ -432,7 +477,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "download":
-        return asyncio.run(download_models())
+        return asyncio.run(
+            download_models(only_vad=args.only_vad, sequential=args.sequential),
+        )
     else:
         if not models_valid():
             print("Some model files are invalid or missing. Please run 'uv run glados download'")

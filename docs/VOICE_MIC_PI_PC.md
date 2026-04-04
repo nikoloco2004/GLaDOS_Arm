@@ -20,7 +20,7 @@ The mic stays open: **Silero VAD** (same ONNX as full Glados) runs on 32 ms fram
 
 **Pi requirements (one-time):**
 
-- From repo root: **`bash scripts/pi_setup_mic_stream.sh`** (or manually: `pip install -e ./personality_core[cpu]` and `cd personality_core && python -m glados.cli download` so `silero_vad_16k_op15.onnx` exists).
+- From repo root: **`bash scripts/pi_setup_mic_stream.sh`** (or manually: `pip install -e ./personality_core[cpu]` and `cd personality_core && python -m glados.cli download --sequential` so `silero_vad_16k_op15.onnx` exists). If only VAD failed after a full download: `python -m glados.cli download --only-vad --sequential`.
 
 If the VAD model is missing, `pi_runtime` logs a warning and you can still use push-to-talk below.
 

@@ -86,9 +86,15 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
     )
     await ws.send(hello.to_json())
 
+    # While TTS plays, this handler blocks in asyncio.to_thread(...) and cannot read the WebSocket.
+    # Without feeding the watchdog, long clips exceed PI_FAILSAFE_S and we log false comm_loss.
+    playback_active = threading.Event()
+
     async def heartbeat_loop() -> None:
         while True:
             await asyncio.sleep(2.0)
+            if playback_active.is_set():
+                watchdog.on_brain_message()
             if watchdog.check():
                 fs = Envelope(
                     type="failsafe",
@@ -327,6 +333,7 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                     mic_thread.start()
                     interrupted = False
                     stdin_already_sent = False
+                    playback_active.set()
                     try:
                         interrupted = await asyncio.to_thread(
                             play_float32_mono_interruptible,
@@ -335,6 +342,7 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                             stop_ev,
                         )
                     finally:
+                        playback_active.clear()
                         if vad_barge:
                             from .mic_stream_vad import (
                                 duplex_voice_during_tts,

@@ -406,6 +406,10 @@ class Glados:
                 observability_bus=self.observability_bus,
                 command_handler=self.handle_command,
                 llm_tools_enabled=self.llm_tools_enabled,
+                audio_io=self.audio_io,
+                currently_speaking_event=self.currently_speaking_event,
+                interruptible=self.interruptible,
+                on_interrupt=lambda _: self._push_emotion_event("user", "User interrupted me mid-sentence"),
             )
 
         self.llm_processor = LanguageModelProcessor(

@@ -4,6 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 import onnxruntime as ort  # type: ignore
 
+from ..utils.onnx_providers import onnx_execution_providers
 from ..utils.resources import resource_path
 
 # Default OnnxRuntime is way to verbose, only show fatal errors
@@ -25,11 +26,7 @@ class VAD:
             - Sets up inference session with the specified model
             - Initializes internal state variables for processing audio chunks
         """
-        providers = ort.get_available_providers()
-        if "TensorrtExecutionProvider" in providers:
-            providers.remove("TensorrtExecutionProvider")
-        if "CoreMLExecutionProvider" in providers:
-            providers.remove("CoreMLExecutionProvider")
+        providers = onnx_execution_providers()
 
         self.ort_sess = ort.InferenceSession(
             model_path,

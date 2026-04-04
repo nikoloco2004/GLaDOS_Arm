@@ -95,6 +95,13 @@ export PI_AUDIO_OUTPUT_SR=48000
 # export GLADOS_SD_OUTPUT_DEVICE=1
 ```
 
+## Troubleshooting
+
+- **False `failsafe: no brain traffic` while she is still talking:** The WebSocket handler blocks during `tts_pcm` playback, so no inbound frames are read until the clip ends; the link watchdog used to think the brain vanished. Current `pi_runtime` feeds the watchdog for the duration of playback — **pull latest** and restart `pi_runtime`.
+- **Two `brain connected` lines with different ports:** You started **`run_brain_runtime` twice** on the PC. Use **one** brain process or you get overlapping TTS and ALSA `Device unavailable` on the Pi.
+- **ALSA `Device unavailable` / PortAudio `-9985`:** Often **mic + speaker** on the same USB gadget or half-duplex card. Try **`export PI_VOICE_INTERRUPT=0`** on the Pi before `python -m pi_runtime` (disables mic barge-in; **stdin interrupt still works** if `PI_STDIN_INTERRUPT=1`).
+- **Typing does not cut her off until Enter:** The SSH voice loop is **line-based** (`readline`). Finish the line and press **Enter** — that triggers stdin interrupt **then** sends your text as `user_text`.
+
 ## Notes
 
 - **GLaDOS `start` on the PC** is separate: use it for mic + typing on the **PC**. The voice loop is **Pi keyboard → Pi speaker** via the PC brain.

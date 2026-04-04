@@ -25,6 +25,8 @@ dependencies = [
 [project.optional-dependencies]
 cuda = ["onnxruntime-gpu>=1.16.0"]
 cpu = ["onnxruntime>=1.16.0"]
+# Windows: pip uninstall onnxruntime onnxruntime-gpu -y && pip install onnxruntime-directml (one wheel only)
+directml = ["onnxruntime-directml>=1.16.0"]
 tiktoken = ["tiktoken>=0.5.0"]
 dev = [
     "pytest",

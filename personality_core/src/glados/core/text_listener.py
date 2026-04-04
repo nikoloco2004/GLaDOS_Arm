@@ -16,6 +16,7 @@ from typing import Any, Callable, TextIO
 
 from loguru import logger
 
+from ..audio_io import AudioProtocol
 from ..autonomy.interaction_state import InteractionState
 from ..observability import ObservabilityBus, trim_message
 
@@ -38,6 +39,10 @@ class TextListener:
         input_stream: TextIO | None = None,
         command_handler: Callable[[str], str] | None = None,
         llm_tools_enabled: bool = True,
+        audio_io: AudioProtocol | None = None,
+        currently_speaking_event: threading.Event | None = None,
+        interruptible: bool = True,
+        on_interrupt: Callable[[str], None] | None = None,
     ) -> None:
         self.llm_queue = llm_queue
         self.processing_active_event = processing_active_event
@@ -48,6 +53,10 @@ class TextListener:
         self._input_stream = input_stream or sys.stdin
         self._command_handler = command_handler
         self.llm_tools_enabled = llm_tools_enabled
+        self._audio_io = audio_io
+        self._currently_speaking_event = currently_speaking_event
+        self._interruptible = interruptible
+        self._on_interrupt = on_interrupt
         self._selector: selectors.BaseSelector | None = None
 
         # Windows console stdin is not a socket; select() raises WinError 10038.
@@ -76,6 +85,19 @@ class TextListener:
                 if not text:
                     continue
                 logger.info(f"Text input: '{text}'")
+
+                # Same as voice barge-in: a new typed line stops TTS and cancels in-flight generation.
+                if (
+                    self._interruptible
+                    and self._audio_io is not None
+                    and self._currently_speaking_event is not None
+                    and self._currently_speaking_event.is_set()
+                ):
+                    self._audio_io.stop_speaking()
+                    self.processing_active_event.clear()
+                    if self._on_interrupt:
+                        self._on_interrupt("user_interrupt_text")
+
                 if text.startswith("/") and self._command_handler:
                     response = self._command_handler(text)
                     logger.success("Command: {} -> {}", text, response)

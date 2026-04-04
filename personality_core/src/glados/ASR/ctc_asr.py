@@ -7,6 +7,7 @@ import onnxruntime as ort  # type: ignore
 import soundfile as sf  # type: ignore
 import yaml
 
+from ..utils.onnx_providers import onnx_execution_providers
 from ..utils.resources import resource_path
 from .mel_spectrogram import MelSpectrogramCalculator, MelSpectrogramConfig
 
@@ -51,20 +52,8 @@ class AudioTranscriber:
             except yaml.YAMLError as e:
                 raise ValueError(f"Error parsing YAML file {config_path}: {e}") from e
 
-        # 2. Configure ONNX Runtime session
-        providers = ort.get_available_providers()
-
-        # Exclude providers known to cause issues or not desired
-        if "TensorrtExecutionProvider" in providers:
-            providers.remove("TensorrtExecutionProvider")
-        if "CoreMLExecutionProvider" in providers:
-            providers.remove("CoreMLExecutionProvider")
-
-        # Prioritize CUDA if available, otherwise CPU
-        if "CUDAExecutionProvider" in providers:
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        else:
-            providers = ["CPUExecutionProvider"]
+        # 2. Configure ONNX Runtime session (CUDA / DirectML / CPU — see onnx_providers)
+        providers = onnx_execution_providers()
 
         session_opts = ort.SessionOptions()
 

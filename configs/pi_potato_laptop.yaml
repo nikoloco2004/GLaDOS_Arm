@@ -1,35 +1,40 @@
-# Pi potato GLaDOS — same defaults as upstream glados_config.yaml when the brain runs on a PC with GPU.
-# Default llm_model is llama3.2 (3B). On the Pi only, if Ollama must run locally, use llama3.2:1b and expect drift.
-# For speed-only / lower quality: qwen2.5:0.5b (expect identity drift).
+# CANONICAL LAPTOP PROFILE — default for:  .\scripts\run_glados_audio_pc.ps1 -Laptop
+# Same potato persona + canon lock as pi_potato.yaml; num_ctx trimmed for 4GB-class laptop VRAM.
+# Uses llama3.2 (3B). For speed-only, switch llm_model to llama3.2:1b (weaker in-character).
 #
-# Terminal + voice + type + log file:
-#   cd personality_core && source ../scripts/pi_env.sh
-#   uv run glados start --config ../configs/pi_potato.yaml --input-mode both 2>&1 | tee ~/glados.log
+# One-time LLM:  ollama pull llama3.2
 #
-# Ollama (brain PC):  ollama pull llama3.2
-# Pi-only brain:       ollama pull llama3.2:1b  and set llm_model below to match
+# ASR/VAD/TTS use ONNX. With default pip install [cpu], that is CPU-only and often feels slower than Ollama.
+# Install ONE GPU wheel from repo root (big speedup):
+#   .\scripts\install_onnx_runtime_gpu.ps1 -Backend Cuda      # NVIDIA
+#   .\scripts\install_onnx_runtime_gpu.ps1 -Backend DirectML # Windows iGPU / Arc / etc.
+#
+# Run:  .\scripts\run_glados_audio_pc.ps1 -Laptop
+#
+# If the startup line gets cut off mid-sentence, use headphones or set interruptible: false below.
 
 Glados:
   llm_model: "llama3.2"
   completion_url: "http://localhost:11434/api/chat"
 
-  llm_request_timeout_s: 180
+  llm_request_timeout_s: 150
   skip_extra_llm_context: true
   # Tiny models often emit junk "tool JSON" in plain text; that gets spoken. Disable tools for chat-only.
   llm_tools_enabled: false
 
   llm_ollama_options:
-    num_ctx: 8192
-    num_predict: 320
+    num_ctx: 4096
+    num_predict: 280
     num_thread: 4
-    temperature: 0.52
-    top_p: 0.9
-    repeat_penalty: 1.05
+    temperature: 0.55
+    top_p: 0.88
+    repeat_penalty: 1.08
 
   api_key: null
   interruptible: true
   audio_io: "sounddevice"
-  input_mode: "audio"
+  # "both" = voice + type in the same terminal (required for stdin chat on Windows).
+  input_mode: "both"
   tts_enabled: true
   asr_muted: false
   tui_theme: "aperture"

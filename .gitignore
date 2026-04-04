@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 .venv/
@@ -8,6 +8,9 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# Downloaded model weights (install: cd personality_core && python -m glados.cli download)
+models/
 
 # personality_core (upstream GLaDOS clone)
 personality_core/.venv/

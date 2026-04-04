@@ -1,0 +1,213 @@
+# Laptop / desktop “brain” setup + hotswap between machines
+
+This guide assumes the **Raspberry Pi** runs `pi_runtime` (WebSocket on port **8765**) and your **gaming laptop** or **main PC** runs the AI stack (`personality_core`, Ollama, `brain_runtime`).
+
+---
+
+## 1. What “hotswap” means here
+
+You keep **one Git repo** (or two clones at the same commit). You run the brain on **either** your main PC **or** your laptop by:
+
+1. Using the **same env vars** (`PI_WS_URL`, paths).
+2. Keeping a **local, gitignored** `configs/brain.env` on each machine (optional but recommended).
+3. Giving the Pi a **stable address** (static DHCP reservation or `raspberrypi.local` / `glados-pi.local`).
+
+Nothing in the repo hard-codes “laptop only” — only **which machine you sit at** changes.
+
+---
+
+## 2. Pi prerequisites (unchanged)
+
+- `pi_runtime` listening: `ws://<pi-host>:8765`
+- Firewall: allow TCP **8765** from your LAN (or VPN) to the Pi.
+
+---
+
+## 3. Install on **each** brain machine (laptop + main PC)
+
+Use the **same steps** on both so you can hop between them.
+
+### 3.1 Clone / pull the repo
+
+```bash
+git clone https://github.com/<you>/GLaDOS_Arm.git
+cd GLaDOS_Arm
+git pull
+```
+
+### 3.2 Python 3.11+
+
+- **Windows:** install from [python.org](https://www.python.org/downloads/) or use `winget install Python.Python.3.12`.
+- **Linux:** `sudo apt install python3.11 python3.11-venv` (or your distro’s package).
+
+### 3.3 `uv` (recommended for `personality_core`)
+
+```bash
+# Windows (PowerShell)
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
+```bash
+# Linux / macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### 3.4 Shared packages: `robot_link`, `brain_runtime`, `personality_core`
+
+From **repo root** `GLaDOS_Arm`:
+
+```bash
+pip install -e ./robot_link
+pip install -e ./brain_runtime
+cd personality_core
+uv sync
+# or: uv venv && uv pip install -e .
+```
+
+On Windows, if you prefer `uv` everywhere:
+
+```powershell
+cd personality_core
+uv sync
+```
+
+### 3.5 Ollama on the **brain** machine (laptop or main PC)
+
+Install from [ollama.com](https://ollama.com/download), then:
+
+```bash
+ollama pull llama3.2:1b
+```
+
+Match `llm_model` in `configs/pi_potato.yaml` (or your brain-only YAML copy on the PC).
+
+### 3.6 GLaDOS models (first run on that machine)
+
+```bash
+cd personality_core
+uv run glados download
+```
+
+---
+
+## 4. Point the brain at the Pi (one variable)
+
+All clients use:
+
+| Variable | Example | Meaning |
+|----------|---------|---------|
+| `PI_WS_URL` | `ws://192.168.1.50:8765` | Pi `pi_runtime` WebSocket URL |
+
+**Stable Pi address (pick one):**
+
+- Router **DHCP reservation** for the Pi’s MAC → fixed IP.
+- **mDNS**: `ws://raspberrypi.local:8765` (works on many home LANs).
+- **/etc/hosts** on each PC: `192.168.1.50 glados-pi` → `ws://glados-pi:8765`.
+
+---
+
+## 5. Easy hotswap: `configs/brain.env`
+
+1. Copy the example file:
+
+   ```bash
+   cp configs/brain.env.example configs/brain.env
+   ```
+
+2. Edit **`configs/brain.env`** on **each** machine (file is gitignored — can differ per PC):
+
+   ```env
+   PI_WS_URL=ws://192.168.1.50:8765
+   ```
+
+3. Load before running commands.
+
+**Git Bash / WSL / Linux / macOS:**
+
+```bash
+cd GLaDOS_Arm
+source scripts/brain_env.sh
+python -m brain_runtime
+```
+
+**Windows PowerShell** (from repo root):
+
+```powershell
+cd GLaDOS_Arm
+. .\scripts\brain_env.ps1
+python -m brain_runtime
+```
+
+**One-liner without helper:**
+
+```bash
+export PI_WS_URL=ws://192.168.1.50:8765   # Linux/macOS/Git Bash
+```
+
+```powershell
+$env:PI_WS_URL = "ws://192.168.1.50:8765"  # PowerShell
+```
+
+---
+
+## 6. Run GLaDOS voice stack on the brain machine
+
+After `source scripts/brain_env.sh` (or `.ps1`):
+
+```bash
+cd personality_core
+uv run glados start --config ../configs/pi_potato.yaml --input-mode both
+```
+
+Ollama must be **running on this same machine** (the brain), not on the Pi.
+
+---
+
+## 7. Run only the Pi bridge (smoke test)
+
+```bash
+source scripts/brain_env.sh   # or brain_env.ps1
+python -m brain_runtime
+```
+
+You should see `hello`, `heartbeat`, and stub `ping` / `neutral` traffic in the logs.
+
+---
+
+## 8. Switching from main PC to laptop (workflow)
+
+| Step | Action |
+|------|--------|
+| 1 | `git pull` on **both** machines (same branch). |
+| 2 | Copy or recreate `configs/brain.env` on the laptop if you use it (same `PI_WS_URL` if same home network). |
+| 3 | Stop GLaDOS / `brain_runtime` on the **first** machine (Ctrl+C). |
+| 4 | On the **second** machine: `source scripts/brain_env.sh` → start `glados` or `brain_runtime` again. |
+
+**Do not** run two full GLaDOS brains against the **same** mic/speaker unless you intend to — only one process should own audio. The Pi can stay up; only the **brain** process moves.
+
+---
+
+## 9. Optional: VPN or remote LAN
+
+If the laptop is not on the same Wi‑Fi as the Pi:
+
+- Tailscale / ZeroTier / WireGuard: use the Pi’s **virtual IP** in `PI_WS_URL`.
+- Ensure `pi_runtime` binds `0.0.0.0` and the VPN allows port **8765**.
+
+---
+
+## 10. Troubleshooting
+
+| Issue | Check |
+|--------|--------|
+| `Connection refused` | Pi: `pi_runtime` running? Firewall? Correct IP? |
+| Works on PC, not laptop | Same `PI_WS_URL`? Laptop on same subnet / VPN? |
+| Ollama errors | Ollama running **on the brain machine** (`curl http://127.0.0.1:11434/api/tags`). |
+
+---
+
+## 11. Files added for this workflow
+
+- `configs/brain.env.example` — template.
+- `configs/brain.env` — **you create**; gitignored.
+- `scripts/brain_env.sh` / `scripts/brain_env.ps1` — load `brain.env` into the shell.

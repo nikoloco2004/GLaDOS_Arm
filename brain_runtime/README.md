@@ -13,9 +13,15 @@ pip install -e ./brain_runtime
 
 ## Run (smoke test)
 
+From repo root, after copying `configs/brain.env.example` → `configs/brain.env` and setting `PI_WS_URL`:
+
 ```bash
-export PI_WS_URL=ws://raspberrypi.local:8765
+source scripts/brain_env.sh
 python -m brain_runtime
 ```
+
+Windows PowerShell: `. .\scripts\brain_env.ps1` then `python -m brain_runtime`.
+
+Full laptop/desktop setup and hotswap between main PC and laptop: [`docs/LAPTOP_BRAIN_SETUP.md`](../docs/LAPTOP_BRAIN_SETUP.md).
 
 Sends `ping` then `neutral` (stub on Pi).

@@ -18,3 +18,7 @@ personality_core/**/__pycache__/
 personality_core/*.egg-info/
 personality_core/.pytest_cache/
 personality_core/.ruff_cache/
+
+# Local brain machine config (PI_WS_URL, etc.) — copy from configs/brain.env.example
+configs/brain.env
+.env

@@ -228,3 +228,5 @@ Brain side keeps using existing `GladosConfig.completion_url` — **Ollama on la
 3. (Optional) Same pipeline with audio routed Pi↔laptop as designed in phase 2.
 
 This file is the **source of truth** for the split; implementation stubs live under `robot_link/`, `pi_runtime/`, `brain_runtime/`.
+
+**Setup the gaming laptop or main PC as the brain** (Ollama, `PI_WS_URL`, hotswap between machines): see [`LAPTOP_BRAIN_SETUP.md`](LAPTOP_BRAIN_SETUP.md).

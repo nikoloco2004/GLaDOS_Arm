@@ -7,6 +7,7 @@ import base64
 import logging
 import os
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,24 @@ _ollama_chat_url: str | None = None
 _tts_model: Any = None
 _system_prompt_cache: str | None = None
 
+# Sliding window of {user, assistant} pairs so GLaDOS stays in character across turns (matches full glados stack).
+def _history_maxlen() -> int:
+    raw = int(os.environ.get("OLLAMA_CHAT_HISTORY_MAX", "24"))
+    return max(2, min(128, raw))
+
+
+_chat_history: deque[dict[str, str]] = deque(maxlen=_history_maxlen())
+
+
+def reset_conversation() -> None:
+    """Clear chat history (call when a new WebSocket session starts)."""
+    _chat_history.clear()
+
+
+def _append_turn(user_text: str, assistant_text: str) -> None:
+    _chat_history.append({"role": "user", "content": user_text})
+    _chat_history.append({"role": "assistant", "content": assistant_text})
+
 
 def _chat_url() -> str:
     global _ollama_chat_url
@@ -34,7 +53,13 @@ def _chat_url() -> str:
 
 
 def _ollama_model() -> str:
-    return os.environ.get("OLLAMA_MODEL", "llama3.2:1b")
+    # Default matches personality_core/configs/glados_config.yaml (original project); use llama3.2:1b on Pi-only.
+    return os.environ.get("OLLAMA_MODEL", "llama3.2")
+
+
+def _ollama_extra_options() -> dict[str, Any]:
+    ctx = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
+    return {"num_ctx": max(2048, min(131072, ctx))}
 
 
 def _system_prompt() -> str:
@@ -79,8 +104,10 @@ def _ollama_reply_sync(user_text: str) -> str:
         "stream": False,
         "messages": [
             {"role": "system", "content": _system_prompt()},
+            *list(_chat_history),
             {"role": "user", "content": user_text},
         ],
+        "options": _ollama_extra_options(),
     }
     r = httpx.post(_chat_url(), json=payload, timeout=120.0)
     r.raise_for_status()
@@ -121,14 +148,19 @@ async def handle_user_text(
 
     loop = asyncio.get_event_loop()
     reply: str
+    llm_ok = False
     try:
         reply = await loop.run_in_executor(None, _ollama_reply_sync, user_text)
+        llm_ok = True
     except Exception as e:
         log.exception("Ollama chat failed")
         reply = f"I'm having trouble reaching my brain. {e}"
 
     if not reply:
         reply = "…"
+
+    if llm_ok:
+        _append_turn(user_text, reply)
 
     try:
         audio, sr = await loop.run_in_executor(None, _synthesize_sync, reply)

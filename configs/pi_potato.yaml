@@ -1,14 +1,16 @@
-﻿# Pi potato GLaDOS — character needs a capable model: default is llama3.2:1b (pull it).
-# For speed-only / lower quality: set llm_model to qwen2.5:0.5b (expect identity drift).
+﻿# Pi potato GLaDOS — same defaults as upstream glados_config.yaml when the brain runs on a PC with GPU.
+# Default llm_model is llama3.2 (3B). On the Pi only, if Ollama must run locally, use llama3.2:1b and expect drift.
+# For speed-only / lower quality: qwen2.5:0.5b (expect identity drift).
 #
 # Terminal + voice + type + log file:
 #   cd personality_core && source ../scripts/pi_env.sh
 #   uv run glados start --config ../configs/pi_potato.yaml --input-mode both 2>&1 | tee ~/glados.log
 #
-# Ollama:  ollama pull llama3.2:1b
+# Ollama (brain PC):  ollama pull llama3.2
+# Pi-only brain:       ollama pull llama3.2:1b  and set llm_model below to match
 
 Glados:
-  llm_model: "llama3.2:1b"
+  llm_model: "llama3.2"
   completion_url: "http://localhost:11434/api/chat"
 
   llm_request_timeout_s: 180
@@ -17,7 +19,7 @@ Glados:
   llm_tools_enabled: false
 
   llm_ollama_options:
-    num_ctx: 4096
+    num_ctx: 8192
     num_predict: 320
     num_thread: 4
     temperature: 0.52

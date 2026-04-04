@@ -36,6 +36,7 @@ class BrainClient:
                 ) as ws:
                     log.info("connected to %s", self.url)
                     delay = self.reconnect_base_s
+                    pipeline.reset_conversation()
                     await self._session(ws)
             except Exception as e:
                 log.warning("disconnected: %s — retry in %.1fs", e, delay)

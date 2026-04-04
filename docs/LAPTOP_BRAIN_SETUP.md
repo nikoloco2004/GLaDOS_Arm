@@ -132,10 +132,10 @@ If installs went to the **user** site-packages and warnings say `Scripts` is not
 Install from [ollama.com](https://ollama.com/download), then:
 
 ```bash
-ollama pull llama3.2:1b
+ollama pull llama3.2
 ```
 
-Match `llm_model` in `configs/pi_potato.yaml` (or your brain-only YAML copy on the PC).
+Match `llm_model` in `configs/pi_potato.yaml` (default **`llama3.2`**, same as upstream `personality_core/configs/glados_config.yaml`). If Ollama runs **on the Raspberry Pi** instead of the brain PC, use `ollama pull llama3.2:1b` and set `llm_model` to `llama3.2:1b` — expect weaker character consistency.
 
 ### 3.6 GLaDOS models (first run on that machine)
 

@@ -176,7 +176,7 @@ Or call `uv` by full path: `~/.local/bin/uv run glados ...`
 bash scripts/setup_ollama_pi.sh
 ```
 
-Or install manually from [ollama.com/download/linux](https://ollama.com/download/linux), then `ollama pull llama3.2:1b` (default in [`configs/pi_potato.yaml`](configs/pi_potato.yaml) for in-character GLaDOS; `qwen2.5:0.5b` is faster but drifts identity—edit `llm_model` if you switch).
+Or install manually from [ollama.com/download/linux](https://ollama.com/download/linux), then `ollama pull llama3.2:1b` if Ollama runs **on the Pi** (slow hardware). When the **brain runs on a PC with a GPU**, use `ollama pull llama3.2` and match [`configs/pi_potato.yaml`](configs/pi_potato.yaml) (`llama3.2` default). `qwen2.5:0.5b` is faster but drifts identity—edit `llm_model` if you switch.
 
 4. **Run GLaDOS** with the potato config (plain terminal — logs to stdout; use `tee` for a file):
 
@@ -226,7 +226,7 @@ You can also set the system default with `arecord -l` / `aplay -l` and PipeWire/
 
 **Notes**
 
-- Pi-focused config: [`configs/pi_potato.yaml`](configs/pi_potato.yaml) (`llama3.2:1b` default, strict GLaDOS system prompt, `skip_extra_llm_context`, CTC ASR, no MCP). Tune `llm_model` / `llm_ollama_options` as needed.
+- Pi-focused config: [`configs/pi_potato.yaml`](configs/pi_potato.yaml) (`llama3.2` when the brain is on a PC; use `llama3.2:1b` if Ollama stays on the Pi, strict GLaDOS system prompt, `skip_extra_llm_context`, CTC ASR, no MCP). Tune `llm_model` / `llm_ollama_options` as needed.
 - The upstream installer uses **CPU ONNX** on Pi (no NVIDIA). First run downloads ASR/VAD/TTS assets; allow time and disk space.
 - Do **not** enable FastVLM / heavy vision in GLaDOS on Pi until you profile CPU/RAM; use Picamera2 face tracking under **§6** for the arm.
 

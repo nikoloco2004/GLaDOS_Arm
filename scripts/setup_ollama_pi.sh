@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Ollama on Raspberry Pi OS / Linux ARM64 and pull the chat model for configs/pi_potato.yaml (default: llama3.2:1b for GLaDOS character quality).
+# Install Ollama on Raspberry Pi OS / Linux ARM64 and pull a small chat model (default: llama3.2:1b) when Ollama must run on the Pi. If the brain runs on a PC with GPU, prefer ollama pull llama3.2 on that machine instead.
 # Run after scripts/install_personality_pi.sh (needs curl; uses official installer).
 #
 # Usage:

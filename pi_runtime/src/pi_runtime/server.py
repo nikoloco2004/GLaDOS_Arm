@@ -7,6 +7,7 @@ import logging
 import os
 import socket
 import sys
+import threading
 import time
 from typing import Any
 
@@ -23,10 +24,11 @@ from robot_link.messages import (
     HeartbeatPayload,
     HelloPayload,
     TtsPcmPayload,
+    UserInterruptPayload,
     UserTextPayload,
 )
 
-from .audio_play import pcm_b64_to_numpy, play_float32_mono
+from .audio_play import mic_interrupt_monitor, pcm_b64_to_numpy, play_float32_mono_interruptible
 from .executor import execute_command
 from .safety import LinkWatchdog
 
@@ -47,7 +49,7 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
     watchdog.on_brain_message()
 
     host = socket.gethostname()
-    caps = ["stub_commands", "heartbeat", "voice_loop"]
+    caps = ["stub_commands", "heartbeat", "voice_loop", "voice_interrupt"]
     hello = Envelope(
         type="hello",
         payload=HelloPayload(hostname=host, capabilities=caps).to_dict(),
@@ -132,8 +134,47 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                         correlation_id=str(p.get("correlation_id", "")),
                     )
                     samples = pcm_b64_to_numpy(payload.pcm_b64)
-                    await asyncio.to_thread(play_float32_mono, samples, float(payload.sample_rate))
-                    log.info("played tts_pcm: %d samples @ %d Hz (%s)", samples.size, payload.sample_rate, payload.text[:80])
+                    stop_ev = threading.Event()
+                    done_ev = threading.Event()
+                    mic_thread = threading.Thread(
+                        target=mic_interrupt_monitor,
+                        args=(stop_ev, done_ev),
+                        name="pi-mic-interrupt",
+                        daemon=True,
+                    )
+                    mic_thread.start()
+                    interrupted = False
+                    try:
+                        interrupted = await asyncio.to_thread(
+                            play_float32_mono_interruptible,
+                            samples,
+                            float(payload.sample_rate),
+                            stop_ev,
+                        )
+                    finally:
+                        done_ev.set()
+                        mic_thread.join(timeout=2.0)
+
+                    if interrupted:
+                        log.info("tts_pcm interrupted (barge-in)")
+                        try:
+                            ui = Envelope(
+                                type="user_interrupt",
+                                payload=UserInterruptPayload(
+                                    correlation_id=payload.correlation_id,
+                                ).to_dict(),
+                            )
+                            await ws.send(ui.to_json())
+                        except Exception as send_e:
+                            log.warning("send user_interrupt failed: %s", send_e)
+
+                    log.info(
+                        "played tts_pcm: %d samples @ %d Hz (%s)%s",
+                        samples.size,
+                        payload.sample_rate,
+                        payload.text[:80],
+                        " [interrupted]" if interrupted else "",
+                    )
                 except Exception as e:
                     log.exception("tts_pcm playback failed: %s", e)
                 continue

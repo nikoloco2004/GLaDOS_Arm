@@ -109,6 +109,16 @@ class TtsPcmPayload:
 
 
 @dataclass
+class UserInterruptPayload:
+    """Pi → brain: user spoke over TTS playback (barge-in / interrupt)."""
+
+    correlation_id: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class ErrorPayload:
     code: str = ""
     message: str = ""

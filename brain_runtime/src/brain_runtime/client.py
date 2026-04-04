@@ -59,6 +59,10 @@ class BrainClient:
                     if text:
                         await pipeline.handle_user_text(ws, text, cid)
                     continue
+
+                if env.type == "user_interrupt":
+                    log.info("pi → user_interrupt (barge-in) %s", env.payload)
+                    continue
         finally:
             keepalive.cancel()
             try:

@@ -58,6 +58,11 @@ Audio should play on the **Pi** speaker after a short delay.
 | `GLADOS_VOICE` | PC | TTS voice, default `glados`. |
 | `GLADOS_CHAT_SYSTEM_PROMPT` | PC | Full system prompt override (optional). |
 | `GLADOS_SYSTEM_PROMPT_FILE` | PC | Path to a `.txt` system prompt (optional). |
+| `PI_VOICE_INTERRUPT` | Pi | `0` to disable barge-in (default `1`). |
+| `PI_SD_INPUT_DEVICE` / `GLADOS_SD_INPUT_DEVICE` | Pi | PortAudio mic index for interrupt (default device). |
+| `PI_INTERRUPT_DELAY_MS` | Pi | Ms after TTS starts before listening (default `280`). |
+| `PI_INTERRUPT_RMS` | Pi | Loudness threshold (default `0.028`). |
+| `PI_INTERRUPT_HITS` | Pi | Consecutive loud blocks to trigger stop (default `4`). |
 
 **Persona:** By default, `brain_runtime` loads **`configs/pi_potato_system_prompt.txt`** (Wheatley arc + potato state), same narrative as `configs/pi_potato.yaml`. Edit that `.txt` or the YAML to change behavior; keep them in sync if you use both GLaDOS on PC and the Pi voice loop.
 
@@ -76,7 +81,7 @@ export PI_AUDIO_OUTPUT_SR=48000
 ## Notes
 
 - **GLaDOS `start` on the PC** is separate: use it for mic + typing on the **PC**. The voice loop is **Pi keyboard → Pi speaker** via the PC brain.
-- **Speech interrupt:** Full `glados start` on the PC can stop TTS when the **PC microphone** detects you talking (`interruptible: true`). In the Pi voice loop, playback happens on the **Pi speaker** and `brain_runtime` does **not** run the speech listener, so **mic-based interrupt does not apply** to this path. (Interrupt while typing on the Pi is not implemented.)
+- **Speech interrupt (Pi mic):** While `tts_pcm` plays on the Pi speaker, `pi_runtime` opens the **Pi default input** (USB mic / headset) and uses RMS energy + a short grace delay (`PI_INTERRUPT_DELAY_MS`) to detect barge-in. When you speak, it calls `sd.stop()` (same idea as PC `glados`) and sends **`user_interrupt`** to the brain (logged only for now). Tune **`PI_INTERRUPT_RMS`** / **`PI_INTERRUPT_HITS`** if the speaker feeds back into the mic or if it is too insensitive. Disable with **`PI_VOICE_INTERRUPT=0`**.
 - **Conversation memory:** `brain_runtime` keeps a **sliding window** of past user/assistant turns (same idea as the full app) so GLaDOS does not “reset” personality every line.
 - To use the **full** `pi_potato.yaml` persona for this path, set `GLADOS_CHAT_SYSTEM_PROMPT` to the same system block (or extend `pipeline.py` to load YAML later).
 - **Large frames:** WebSocket max message size is raised to 12 MiB for PCM payloads.

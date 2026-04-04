@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 import time
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,30 +19,74 @@ except ImportError as e:  # pragma: no cover
 
 log = logging.getLogger(__name__)
 
+# PortAudio accepts int index, ALSA logical name (e.g. default/pulse), or None for host default.
+OutputDeviceSpec: TypeAlias = int | str | None
+
 _cached_out_sr: float | None = None
 _cached_out_channels: int | None = None  # 1 or 2 (Bluetooth A2DP often requires stereo)
-_cached_output_device_id: int | None = None  # set after successful probe (may differ from sd.default)
+_cached_output_device: OutputDeviceSpec = None  # set after successful probe (may differ from sd.default)
 
 
-def _env_output_device() -> int | None:
+def _env_output_device() -> OutputDeviceSpec:
     raw = os.environ.get("GLADOS_SD_OUTPUT_DEVICE", "").strip() or os.environ.get("PI_SD_OUTPUT_DEVICE", "").strip()
     if not raw:
         return None
+    low = raw.lower()
+    if low in ("default", "pulse", "sysdefault"):
+        return low
     try:
         return int(raw)
     except ValueError:
-        return None
+        return raw
 
 
-def _output_dev() -> int:
-    """Output device index for TTS. After the first successful probe, uses the cached working device."""
-    global _cached_output_device_id
-    if _cached_output_device_id is not None:
-        return _cached_output_device_id
+def _default_output_index_invalid() -> bool:
+    try:
+        return int(sd.default.device[1]) < 0
+    except Exception:
+        return True
+
+
+def _named_output_fallbacks() -> list[OutputDeviceSpec]:
+    """When ALSA only lists hardware (e.g. USB mic) but PipeWire/Pulse routes BT/music via a virtual sink."""
+    out: list[OutputDeviceSpec] = []
+    for name in ("default", "pulse"):
+        try:
+            sd.query_devices(name)
+            out.append(name)
+        except Exception:
+            pass
+    out.append(None)
+    return out
+
+
+def _merge_output_candidates(found: list[int]) -> list[OutputDeviceSpec]:
+    """Prefer enumerated devices first; add default/pulse/None when the host default output is missing (-1)."""
+    merged: list[OutputDeviceSpec] = list(found)
+    if _default_output_index_invalid():
+        for x in _named_output_fallbacks():
+            if x not in merged:
+                merged.append(x)
+    elif not found:
+        merged.extend(_named_output_fallbacks())
+    return merged
+
+
+def _output_dev() -> OutputDeviceSpec:
+    """Output device for TTS. After the first successful probe, uses the cached working device."""
+    global _cached_output_device
+    if _cached_output_device is not None:
+        return _cached_output_device
     d = _env_output_device()
     if d is not None:
         return d
-    return int(sd.default.device[1])
+    try:
+        i = int(sd.default.device[1])
+        if i >= 0:
+            return i
+    except Exception:
+        pass
+    return None
 
 
 def _portaudio_num_devices() -> int:
@@ -58,11 +102,7 @@ def _portaudio_num_devices() -> int:
 
 
 def _enumerate_output_devices() -> list[int]:
-    """Output device indices for TTS. Prefer PortAudio's kind=output; fall back if hosts mis-report channels."""
-    fixed = _env_output_device()
-    if fixed is not None:
-        return [fixed]
-
+    """Scan PortAudio for output device indices (no env override). Prefer kind=output; fall back if hosts mis-report."""
     found: list[int] = []
 
     # 1) sounddevice can list output-only indices (most reliable on PipeWire/Pulse/Bluetooth).
@@ -91,15 +131,31 @@ def _enumerate_output_devices() -> list[int]:
         except Exception as e:
             log.warning("enumerate output devices (scan): %s", e)
 
-    # 3) Some Pulse/Bluetooth nodes report 0 output channels; try every index and let probe decide.
+    # 3) Some Pulse/Bluetooth nodes report 0 output channels; try remaining indices and let probe decide.
+    #    Skip input-only devices (e.g. USB mic: max_out=0, max_in>0) — they are never valid TTS outputs.
     if not found:
         n = _portaudio_num_devices()
         if n > 0:
-            found = list(range(n))
-            log.warning(
-                "No devices with max_output_channels>0; trying all %d PortAudio indices (Bluetooth/Pulse quirk)",
-                n,
-            )
+            for i in range(n):
+                try:
+                    info = sd.query_devices(i)
+                    mo = int(info.get("max_output_channels") or 0)
+                    mi = int(info.get("max_input_channels") or 0)
+                except Exception:
+                    found.append(i)
+                    continue
+                if mo > 0:
+                    found.append(i)
+                elif mo == 0 and mi > 0:
+                    pass  # input-only; skip
+                else:
+                    # mo==0 and mi==0: odd/phantom; still try (some hosts mis-report Bluetooth)
+                    found.append(i)
+            if found:
+                log.warning(
+                    "No devices with max_output_channels>0; trying %d PortAudio index(es) (Bluetooth/Pulse quirk)",
+                    len(found),
+                )
 
     try:
         def_pair = sd.default.device
@@ -113,9 +169,14 @@ def _enumerate_output_devices() -> list[int]:
     return found
 
 
-def _preferred_sr_for_device(device: int) -> float:
+def _preferred_sr_for_device(device: OutputDeviceSpec) -> float:
     try:
-        info = sd.query_devices(device, "output")
+        if device is None:
+            info = sd.query_devices(None)
+        elif isinstance(device, str):
+            info = sd.query_devices(device)
+        else:
+            info = sd.query_devices(device, "output")
         sr = float(info.get("default_samplerate") or 0.0)
         if sr > 0:
             return sr
@@ -140,7 +201,7 @@ def _resample_linear_mono(
     return np.interp(t_new, t_old, x).astype(np.float32)
 
 
-def _probe_output_stream(sr: float, channels: int, device: int) -> bool:
+def _probe_output_stream(sr: float, channels: int, device: OutputDeviceSpec) -> bool:
     """Return True if PortAudio can open this output device at sr/channels (Bluetooth often needs stereo)."""
 
     def _out_cb(outdata: NDArray[np.float32], frames: int, t: Any, st: Any) -> None:
@@ -162,7 +223,7 @@ def _probe_output_stream(sr: float, channels: int, device: int) -> bool:
         return False
 
 
-def _ordered_sr_candidates(device: int) -> list[float]:
+def _ordered_sr_candidates(device: OutputDeviceSpec) -> list[float]:
     env = os.environ.get("PI_AUDIO_OUTPUT_SR", "").strip() or os.environ.get("GLADOS_AUDIO_OUTPUT_SR", "").strip()
     if env:
         try:
@@ -179,11 +240,11 @@ def _ordered_sr_candidates(device: int) -> list[float]:
 
 def resolve_output_samplerate() -> float:
     """Pick device + rate + channel count PortAudio accepts; cache result."""
-    global _cached_out_sr, _cached_out_channels, _cached_output_device_id
+    global _cached_out_sr, _cached_out_channels, _cached_output_device
     if (
         _cached_out_sr is not None
         and _cached_out_channels is not None
-        and _cached_output_device_id is not None
+        and _cached_output_device is not None
     ):
         return _cached_out_sr
 
@@ -195,16 +256,32 @@ def resolve_output_samplerate() -> float:
         # Mono first (USB speakers); stereo second (many Bluetooth A2DP sinks reject mono streams).
         ch_order = [1, 2]
 
-    devices = _enumerate_output_devices()
+    fixed = _env_output_device()
+    if fixed is not None:
+        devices: list[OutputDeviceSpec] = [fixed]
+    else:
+        devices = _merge_output_candidates(_enumerate_output_devices())
+
     if not devices:
         if _portaudio_num_devices() == 0:
             raise RuntimeError(
                 "PortAudio reports zero audio devices (check PipeWire/ALSA; pi needs sounddevice + working audio stack)."
             )
+        hint = ""
+        try:
+            if int(sd.default.device[1]) < 0:
+                hint = (
+                    " Default output is unset (default device shows -1 for output). "
+                    "Connect USB speakers, HDMI audio, or pair Bluetooth headphones/A2DP "
+                    "and set that sink as default in the OS, then restart pi_runtime."
+                )
+        except Exception:
+            pass
         raise RuntimeError(
-            "No output device could be probed. Use venv Python to list devices: "
-            "./.venv/bin/python -c \"import sounddevice as sd; print(sd.query_devices()); print(sd.default.device)\" "
-            "then export GLADOS_SD_OUTPUT_DEVICE=<index> (and PI_AUDIO_OUTPUT_SR=48000 if needed)."
+            "No PortAudio output device found (only input/capture devices, or no playable sink)."
+            + hint
+            + " Check: ./.venv/bin/python -c \"import sounddevice as sd; print(sd.query_devices()); print(sd.default.device)\""
+            " — you need at least one device with output channels (max_output_channels>0) or a working default sink."
         )
 
     for device in devices:
@@ -213,9 +290,14 @@ def resolve_output_samplerate() -> float:
                 if _probe_output_stream(sr, ch, device):
                     _cached_out_sr = float(sr)
                     _cached_out_channels = ch
-                    _cached_output_device_id = device
+                    _cached_output_device = device
                     try:
-                        name = sd.query_devices(device).get("name", "")
+                        if device is None:
+                            name = "(default)"
+                        elif isinstance(device, str):
+                            name = device
+                        else:
+                            name = str(sd.query_devices(device).get("name", ""))
                     except Exception:
                         name = ""
                     log.info(
@@ -229,7 +311,8 @@ def resolve_output_samplerate() -> float:
 
     raise RuntimeError(
         "No working output on any device. Try: export PI_AUDIO_OUTPUT_SR=48000 "
-        "and GLADOS_SD_OUTPUT_DEVICE=<index> (python -c \"import sounddevice as sd; print(sd.query_devices())\")."
+        "and GLADOS_SD_OUTPUT_DEVICE=<index|default|pulse> "
+        "(./.venv/bin/python -c \"import sounddevice as sd; print(sd.query_devices())\")."
     )
 
 

@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 
 _cached_out_sr: float | None = None
 _cached_out_channels: int | None = None  # 1 or 2 (Bluetooth A2DP often requires stereo)
+_cached_output_device_id: int | None = None  # set after successful probe (may differ from sd.default)
 
 
 def _env_output_device() -> int | None:
@@ -34,15 +35,46 @@ def _env_output_device() -> int | None:
 
 
 def _output_dev() -> int:
+    """Output device index for TTS. After the first successful probe, uses the cached working device."""
+    global _cached_output_device_id
+    if _cached_output_device_id is not None:
+        return _cached_output_device_id
     d = _env_output_device()
     if d is not None:
         return d
     return int(sd.default.device[1])
 
 
-def _default_sr_for_output() -> float:
+def _enumerate_output_devices() -> list[int]:
+    """Indices with max_output_channels > 0. If env fixes a device, only that index. Else default-out first."""
+    fixed = _env_output_device()
+    if fixed is not None:
+        return [fixed]
+    found: list[int] = []
     try:
-        info = sd.query_devices(_output_dev(), "output")
+        n = len(sd.query_devices())
+        for i in range(n):
+            info = sd.query_devices(i)
+            if int(info.get("max_output_channels") or 0) > 0:
+                found.append(i)
+    except Exception as e:
+        log.warning("enumerate output devices failed: %s", e)
+        return []
+    try:
+        def_pair = sd.default.device
+        if isinstance(def_pair, (tuple, list, np.ndarray)) and len(def_pair) >= 2:
+            def_out = int(def_pair[1])
+            if def_out >= 0 and def_out in found:
+                found.remove(def_out)
+                found.insert(0, def_out)
+    except Exception:
+        pass
+    return found
+
+
+def _preferred_sr_for_device(device: int) -> float:
+    try:
+        info = sd.query_devices(device, "output")
         sr = float(info.get("default_samplerate") or 0.0)
         if sr > 0:
             return sr
@@ -67,16 +99,15 @@ def _resample_linear_mono(
     return np.interp(t_new, t_old, x).astype(np.float32)
 
 
-def _probe_output_stream(sr: float, channels: int) -> bool:
+def _probe_output_stream(sr: float, channels: int, device: int) -> bool:
     """Return True if PortAudio can open this output device at sr/channels (Bluetooth often needs stereo)."""
-    dev = _output_dev()
 
     def _out_cb(outdata: NDArray[np.float32], frames: int, t: Any, st: Any) -> None:
         outdata.fill(0)
 
     try:
         stream = sd.OutputStream(
-            device=dev,
+            device=device,
             samplerate=sr,
             channels=channels,
             callback=_out_cb,
@@ -90,14 +121,14 @@ def _probe_output_stream(sr: float, channels: int) -> bool:
         return False
 
 
-def _ordered_sr_candidates() -> list[float]:
+def _ordered_sr_candidates(device: int) -> list[float]:
     env = os.environ.get("PI_AUDIO_OUTPUT_SR", "").strip() or os.environ.get("GLADOS_AUDIO_OUTPUT_SR", "").strip()
     if env:
         try:
             return [float(env)]
         except ValueError:
             log.warning("PI_AUDIO_OUTPUT_SR / GLADOS_AUDIO_OUTPUT_SR invalid, probing rates")
-    d = _default_sr_for_output()
+    d = _preferred_sr_for_device(device)
     preferred: list[float] = [d]
     for r in (48000.0, 44100.0, 32000.0, 24000.0, 22050.0, 16000.0):
         if not any(abs(r - x) < 0.5 for x in preferred):
@@ -106,9 +137,13 @@ def _ordered_sr_candidates() -> list[float]:
 
 
 def resolve_output_samplerate() -> float:
-    """Pick a rate (and channel count) ALSA/PortAudio accepts; cache result."""
-    global _cached_out_sr, _cached_out_channels
-    if _cached_out_sr is not None and _cached_out_channels is not None:
+    """Pick device + rate + channel count PortAudio accepts; cache result."""
+    global _cached_out_sr, _cached_out_channels, _cached_output_device_id
+    if (
+        _cached_out_sr is not None
+        and _cached_out_channels is not None
+        and _cached_output_device_id is not None
+    ):
         return _cached_out_sr
 
     forced_ch = os.environ.get("PI_AUDIO_OUTPUT_CHANNELS", "").strip()
@@ -119,23 +154,35 @@ def resolve_output_samplerate() -> float:
         # Mono first (USB speakers); stereo second (many Bluetooth A2DP sinks reject mono streams).
         ch_order = [1, 2]
 
-    for sr in _ordered_sr_candidates():
-        for ch in ch_order:
-            if _probe_output_stream(sr, ch):
-                _cached_out_sr = float(sr)
-                _cached_out_channels = ch
-                log.info(
-                    "Pi TTS playback: %.0f Hz, %d ch (device %s)",
-                    _cached_out_sr,
-                    ch,
-                    _output_dev(),
-                )
-                return _cached_out_sr
+    devices = _enumerate_output_devices()
+    if not devices:
+        raise RuntimeError(
+            "No PortAudio output devices found. Pair Bluetooth, pick a default sink in the OS, then retry."
+        )
+
+    for device in devices:
+        for sr in _ordered_sr_candidates(device):
+            for ch in ch_order:
+                if _probe_output_stream(sr, ch, device):
+                    _cached_out_sr = float(sr)
+                    _cached_out_channels = ch
+                    _cached_output_device_id = device
+                    try:
+                        name = sd.query_devices(device).get("name", "")
+                    except Exception:
+                        name = ""
+                    log.info(
+                        "Pi TTS playback: %.0f Hz, %d ch, device %s — %s",
+                        _cached_out_sr,
+                        ch,
+                        device,
+                        name,
+                    )
+                    return _cached_out_sr
+
     raise RuntimeError(
-        "No working output sample rate/channel layout. Bluetooth often needs stereo: "
-        "try export PI_AUDIO_OUTPUT_SR=48000 and/or PI_AUDIO_OUTPUT_CHANNELS=2, "
-        "and set GLADOS_SD_OUTPUT_DEVICE (or PI_SD_OUTPUT_DEVICE) to the PortAudio index "
-        "for your AirPods (run: python -c \"import sounddevice as sd; print(sd.query_devices())\")."
+        "No working output on any device. Try: export PI_AUDIO_OUTPUT_SR=48000 "
+        "and GLADOS_SD_OUTPUT_DEVICE=<index> (python -c \"import sounddevice as sd; print(sd.query_devices())\")."
     )
 
 

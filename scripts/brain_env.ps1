@@ -13,5 +13,5 @@ if (Test-Path $EnvFile) {
     }
     Write-Host "brain_env: loaded $EnvFile"
 } else {
-    Write-Host "brain_env: $EnvFile not found — set `$env:PI_WS_URL yourself or copy configs/brain.env.example"
+    Write-Host "brain_env: $EnvFile not found - set `$env:PI_WS_URL yourself or copy configs/brain.env.example"
 }

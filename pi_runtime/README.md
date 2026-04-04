@@ -129,12 +129,11 @@ python3 -m pi_runtime
 | `PI_VAD_PAUSE_MS` | `640` | Ms of **silence** after speech before an utterance is sent (shorter = snappier; too low may split phrases). |
 | `PI_MIC_DEBUG` | off | `1` → log capture **RMS** every ~1.5s (if RMS ~0, OS mic gain/mute is the problem). |
 | `PI_MIC_INPUT_DEVICE` / `GLADOS_SD_INPUT_DEVICE` / `PI_SD_INPUT_DEVICE` | default | **Index** (e.g. `0`) **or** ALSA logical name: **`pulse`** / **`default`** (PipeWire/Pulse). Use **`pulse`** if direct `hw:*` shows **RMS=0** in `PI_MIC_DEBUG` but the mic works in `pavucontrol`. |
-| `PI_MIC_PREFER_USB` | `1` | After pairing **Bluetooth** headphones, PipeWire often sets the **default input** to HFP/BlueZ (can be silent). When `1`, skip BT-looking defaults and use wired **USB** capture. Set `0` to use the default input as-is (e.g. AirPods mic). |
 | `PI_AUDIO_OUTPUT_SR` / `GLADOS_AUDIO_OUTPUT_SR` | probe | Force TTS output sample rate (e.g. `48000`) if ALSA is picky |
-| `GLADOS_SD_OUTPUT_DEVICE` / `PI_SD_OUTPUT_DEVICE` | *(auto)* | PortAudio **output** index, or **`default`** / **`pulse`** / **`sysdefault`** for PipeWire/Pulse (Bluetooth often only appears there). Use an index for a specific USB speaker. |
-| `PI_AUDIO_OUTPUT_CHANNELS` | probe **1 then 2** | Set `1` or `2` to force; **Bluetooth A2DP** often rejects mono — code tries stereo automatically |
+| `GLADOS_SD_OUTPUT_DEVICE` / `PI_SD_OUTPUT_DEVICE` | *(auto)* | PortAudio **output** index, or **`default`** / **`pulse`** / **`sysdefault`** for PipeWire/Pulse. Use an index for a specific USB speaker. |
+| `PI_AUDIO_OUTPUT_CHANNELS` | probe **1 then 2** | Set `1` or `2` to force; otherwise probes **mono then stereo** |
 | `PI_PLAYBACK_PAPLAY` | `1` | If PortAudio cannot open any sink, fall back to **`pw-play`** (PipeWire) or **`paplay`** (Pulse compat). Set `0` to disable. |
-| `PI_AUDIO_NAMED_STEREO_FIRST` | `1` | For `default`/`pulse`/host default, try **stereo** before mono (Bluetooth). Set `0` for mono-first on named devices. |
+| `PI_AUDIO_NAMED_STEREO_FIRST` | `0` | For `default`/`pulse`/host default, set **`1`** to try **stereo before mono** (some virtual sinks prefer stereo). Default is mono-first. |
 | `PI_AUDIO_DEBUG` | off | Set `1` to log failed PortAudio probe attempts (rate/channel/blocksize). |
 
 **SSH:** If `paplay`/`pw-play` prints `open(): No such file or directory`, the Pulse/PipeWire socket was not found — run `export XDG_RUNTIME_DIR=/run/user/$(id -u)` before `pi_runtime` (same user as the desktop session that plays music).

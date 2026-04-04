@@ -180,43 +180,6 @@ def _sd_num_devices() -> int:
         return 0
 
 
-def _name_looks_like_bluetooth_input(name: str) -> bool:
-    """PipeWire often makes AirPods HFP the default *input*; capture can be silent or wrong."""
-    n = name.lower()
-    if "bluez" in n:
-        return True
-    if "bluetooth" in n and "usb" not in n:
-        return True
-    return False
-
-
-def _first_wired_usbish_input_device() -> int | None:
-    """Prefer USB Composite / UAC dongle capture when BT is not the intended mic."""
-    n = _sd_num_devices()
-    usbish: list[int] = []
-    other: list[int] = []
-    for i in range(n):
-        try:
-            info = sd.query_devices(i)
-        except Exception:
-            continue
-        if int(info.get("max_input_channels") or 0) <= 0:
-            continue
-        name = str(info.get("name", ""))
-        if _name_looks_like_bluetooth_input(name):
-            continue
-        low = name.lower()
-        if any(x in low for x in ("usb", "composite", "uac", "codec")):
-            usbish.append(i)
-        else:
-            other.append(i)
-    if usbish:
-        return usbish[0]
-    if other:
-        return other[0]
-    return None
-
-
 def _env_raw_input_device() -> str | None:
     for key in ("PI_MIC_INPUT_DEVICE", "GLADOS_SD_INPUT_DEVICE", "PI_SD_INPUT_DEVICE"):
         v = os.environ.get(key, "").strip()
@@ -236,44 +199,11 @@ def _parse_input_spec(raw: str) -> InputDeviceSpec:
 
 
 def _default_int_input_device() -> int:
-    """PortAudio index when no env override; avoid BT default when PI_MIC_PREFER_USB=1."""
+    """PortAudio default input index when no env override."""
     try:
-        def_idx = int(sd.default.device[0])
+        return int(sd.default.device[0])
     except Exception:
         return 0
-
-    prefer_usb = os.environ.get("PI_MIC_PREFER_USB", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
-    if not prefer_usb:
-        return def_idx
-
-    try:
-        def_name = str(sd.query_devices(def_idx, "input").get("name", ""))
-    except Exception:
-        return def_idx
-
-    if not _name_looks_like_bluetooth_input(def_name):
-        return def_idx
-
-    alt = _first_wired_usbish_input_device()
-    if alt is not None and alt != def_idx:
-        try:
-            alt_name = str(sd.query_devices(alt, "input").get("name", ""))
-        except Exception:
-            alt_name = "?"
-        log.info(
-            "Pi VAD: default input looks like Bluetooth (%s); using wired/USB capture device %s — %s "
-            "(pairing AirPods can steal the default; GLADOS_SD_INPUT_DEVICE=N or PI_MIC_PREFER_USB=0 to override)",
-            def_name,
-            alt,
-            alt_name,
-        )
-        return alt
-    return def_idx
 
 
 def _resolve_logical_input(spec: str) -> InputDeviceSpec:
@@ -301,16 +231,8 @@ def _resolve_logical_input(spec: str) -> InputDeviceSpec:
                 info.get("name", "?"),
             )
             return i
-    alt = _first_wired_usbish_input_device()
-    if alt is not None:
-        log.warning(
-            "Pi VAD: no pulse/pipewire in PortAudio names; using wired USB index %s (same as PI_MIC_PREFER_USB). "
-            "If capture is still silent, set GLADOS_SD_INPUT_DEVICE to the mic index from query_devices().",
-            alt,
-        )
-        return alt
     log.warning(
-        "Pi VAD: no pulse/pipewire or USB capture found; using host default (device=None). "
+        "Pi VAD: no pulse/pipewire in PortAudio names; using host default (device=None). "
         "Set GLADOS_SD_INPUT_DEVICE=<index> from: python -c \"import sounddevice as sd; print(sd.query_devices())\"",
     )
     return None

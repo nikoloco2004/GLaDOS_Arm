@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 OutputDeviceSpec: TypeAlias = int | str | None
 
 _cached_out_sr: float | None = None
-_cached_out_channels: int | None = None  # 1 or 2 (Bluetooth A2DP often requires stereo)
+_cached_out_channels: int | None = None  # 1 or 2
 _cached_output_device: OutputDeviceSpec = None  # set after successful probe (may differ from sd.default)
 _cached_playback_backend: str | None = None  # "portaudio" | "pulse_cli" (paplay or pw-play)
 _cached_pulse_cli: list[str] | None = None  # argv[0] when using pulse_cli
@@ -54,7 +54,7 @@ def _default_output_index_invalid() -> bool:
 
 
 def _named_output_fallbacks() -> list[OutputDeviceSpec]:
-    """When ALSA only lists hardware (e.g. USB mic) but PipeWire/Pulse routes BT/music via a virtual sink."""
+    """When ALSA only lists hardware (e.g. USB mic) but PipeWire/Pulse routes via a virtual sink."""
     out: list[OutputDeviceSpec] = []
     for name in ("default", "pulse"):
         try:
@@ -111,7 +111,7 @@ def _enumerate_output_devices() -> list[int]:
     """Scan PortAudio for output device indices (no env override). Prefer kind=output; fall back if hosts mis-report."""
     found: list[int] = []
 
-    # 1) sounddevice can list output-only indices (most reliable on PipeWire/Pulse/Bluetooth).
+    # 1) sounddevice can list output-only indices (most reliable on PipeWire/Pulse).
     try:
         out = sd.query_devices(kind="output")
         if out is not None:
@@ -137,7 +137,7 @@ def _enumerate_output_devices() -> list[int]:
         except Exception as e:
             log.warning("enumerate output devices (scan): %s", e)
 
-    # 3) Some Pulse/Bluetooth nodes report 0 output channels; try remaining indices and let probe decide.
+    # 3) Some Pulse/PipeWire nodes report 0 output channels; try remaining indices and let probe decide.
     #    Skip input-only devices (e.g. USB mic: max_out=0, max_in>0) — they are never valid TTS outputs.
     if not found:
         n = _portaudio_num_devices()
@@ -155,11 +155,11 @@ def _enumerate_output_devices() -> list[int]:
                 elif mo == 0 and mi > 0:
                     pass  # input-only; skip
                 else:
-                    # mo==0 and mi==0: odd/phantom; still try (some hosts mis-report Bluetooth)
+                    # mo==0 and mi==0: odd/phantom; still try (some hosts mis-report channels)
                     found.append(i)
             if found:
                 log.warning(
-                    "No devices with max_output_channels>0; trying %d PortAudio index(es) (Bluetooth/Pulse quirk)",
+                    "No devices with max_output_channels>0; trying %d PortAudio index(es) (Pulse/PipeWire quirk)",
                     len(found),
                 )
 
@@ -212,23 +212,23 @@ def _audio_debug() -> bool:
 
 
 def _channel_order_for_device(device: OutputDeviceSpec) -> list[int]:
-    """USB speakers often work mono-first; PipeWire/Pulse names + Bluetooth often need stereo."""
+    """Probe channel counts: default mono then stereo (USB-friendly)."""
     forced = os.environ.get("PI_AUDIO_OUTPUT_CHANNELS", "").strip()
     if forced in ("1", "2"):
         return [int(forced)]
     if isinstance(device, str) or device is None:
-        if os.environ.get("PI_AUDIO_NAMED_STEREO_FIRST", "1").strip().lower() not in (
-            "0",
-            "false",
-            "no",
-            "off",
+        if os.environ.get("PI_AUDIO_NAMED_STEREO_FIRST", "0").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
         ):
             return [2, 1]
     return [1, 2]
 
 
 def _probe_output_stream(sr: float, channels: int, device: OutputDeviceSpec) -> bool:
-    """Return True if PortAudio can open this output device at sr/channels (Bluetooth often needs stereo)."""
+    """Return True if PortAudio can open this output device at sr/channels."""
 
     def _out_cb(outdata: NDArray[np.float32], frames: int, t: Any, st: Any) -> None:
         outdata.fill(0)
@@ -461,8 +461,8 @@ def resolve_output_samplerate() -> float:
             if int(sd.default.device[1]) < 0:
                 hint = (
                     " Default output is unset (default device shows -1 for output). "
-                    "Connect USB speakers, HDMI audio, or pair Bluetooth headphones/A2DP "
-                    "and set that sink as default in the OS, then restart pi_runtime."
+                    "Connect USB speakers or HDMI audio and set that sink as default in the OS, "
+                    "then restart pi_runtime."
                 )
         except Exception:
             pass

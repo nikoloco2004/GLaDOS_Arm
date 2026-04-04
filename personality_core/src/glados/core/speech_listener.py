@@ -58,6 +58,7 @@ class SpeechListener:
         asr_muted_event: threading.Event | None = None,
         audio_state: AudioState | None = None,
         on_interrupt: InterruptCallback | None = None,
+        llm_tools_enabled: bool = True,
     ) -> None:
         """
         Initializes the SpeechListener with audio I/O, inter-thread communication, and ASR model.
@@ -78,6 +79,7 @@ class SpeechListener:
         self.wake_word = wake_word.lower() if wake_word else None
         self.pause_time = pause_time
         self.interruptible = interruptible
+        self.llm_tools_enabled = llm_tools_enabled
 
         # Circular buffer to hold pre-activation samples
         self._buffer: deque[NDArray[np.float32]] = deque(maxlen=self.BUFFER_SIZE // self.VAD_SIZE)
@@ -289,14 +291,15 @@ class SpeechListener:
                         kind="user_input",
                         message=trim_message(detected_text),
                     )
-                self.llm_queue.put(
-                    {
-                        "role": "user",
-                        "content": detected_text,
-                        "_enqueued_at": time.time(),
-                        "_lane": "priority",
-                    }
-                )
+                msg: dict[str, Any] = {
+                    "role": "user",
+                    "content": detected_text,
+                    "_enqueued_at": time.time(),
+                    "_lane": "priority",
+                }
+                if not self.llm_tools_enabled:
+                    msg["_allow_tools"] = False
+                self.llm_queue.put(msg)
                 if self._interaction_state:
                     self._interaction_state.mark_user()
                 self.processing_active_event.set()

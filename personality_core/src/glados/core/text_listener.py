@@ -37,6 +37,7 @@ class TextListener:
         observability_bus: ObservabilityBus | None = None,
         input_stream: TextIO | None = None,
         command_handler: Callable[[str], str] | None = None,
+        llm_tools_enabled: bool = True,
     ) -> None:
         self.llm_queue = llm_queue
         self.processing_active_event = processing_active_event
@@ -46,6 +47,7 @@ class TextListener:
         self._observability_bus = observability_bus
         self._input_stream = input_stream or sys.stdin
         self._command_handler = command_handler
+        self.llm_tools_enabled = llm_tools_enabled
         self._selector: selectors.BaseSelector | None = None
 
         # Windows console stdin is not a socket; select() raises WinError 10038.
@@ -84,14 +86,15 @@ class TextListener:
                         kind="user_input",
                         message=trim_message(text),
                     )
-                self.llm_queue.put(
-                    {
-                        "role": "user",
-                        "content": text,
-                        "_enqueued_at": time.time(),
-                        "_lane": "priority",
-                    }
-                )
+                msg: dict[str, Any] = {
+                    "role": "user",
+                    "content": text,
+                    "_enqueued_at": time.time(),
+                    "_lane": "priority",
+                }
+                if not self.llm_tools_enabled:
+                    msg["_allow_tools"] = False
+                self.llm_queue.put(msg)
                 if self._interaction_state:
                     self._interaction_state.mark_user()
                 self.processing_active_event.set()

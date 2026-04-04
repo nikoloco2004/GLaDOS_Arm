@@ -13,6 +13,8 @@ Glados:
 
   llm_request_timeout_s: 180
   skip_extra_llm_context: true
+  # Tiny models often emit junk "tool JSON" in plain text; that gets spoken. Disable tools for chat-only.
+  llm_tools_enabled: false
 
   llm_ollama_options:
     num_ctx: 4096

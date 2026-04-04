@@ -122,6 +122,7 @@ class GladosConfig(BaseModel):
     llm_request_timeout_s: float = 60.0
     llm_ollama_options: dict[str, Any] | None = None
     skip_extra_llm_context: bool = False
+    llm_tools_enabled: bool = True
     vision: VisionConfig | None = None
     autonomy: AutonomyConfig | None = None
     mcp_servers: list[MCPServerConfig] | None = None
@@ -208,6 +209,7 @@ class Glados:
         tts_enabled: bool = True,
         asr_muted: bool = False,
         llm_headers: dict[str, str] | None = None,
+        llm_tools_enabled: bool = True,
     ) -> None:
         """
         Initialize the Glados voice assistant with configuration parameters.
@@ -236,6 +238,7 @@ class Glados:
             tts_enabled (bool): Whether TTS audio output is enabled at startup.
             asr_muted (bool): Whether ASR starts muted.
             llm_headers (dict[str, str] | None): Extra headers for LLM requests.
+            llm_tools_enabled (bool): If False, user/voice turns do not send tool schemas (helps tiny models).
         """
         self._asr_model = asr_model
         self._tts = tts_model
@@ -252,6 +255,7 @@ class Glados:
         self.llm_ollama_options = llm_ollama_options
         self.skip_extra_llm_context = skip_extra_llm_context
         self.mcp_servers = mcp_servers or []
+        self.llm_tools_enabled = llm_tools_enabled
         self._conversation_store = ConversationStore(initial_messages=list(personality_preprompt))
         self.vision_config = vision_config
         self.autonomy_config = autonomy_config or AutonomyConfig()
@@ -388,6 +392,7 @@ class Glados:
                 asr_muted_event=self.asr_muted_event,
                 audio_state=self.audio_state,
                 on_interrupt=lambda _: self._push_emotion_event("user", "User interrupted me mid-sentence"),
+                llm_tools_enabled=self.llm_tools_enabled,
             )
         if self.input_mode in {"text", "both"}:
             if self.input_mode == "text":
@@ -400,6 +405,7 @@ class Glados:
                 interaction_state=self.interaction_state,
                 observability_bus=self.observability_bus,
                 command_handler=self.handle_command,
+                llm_tools_enabled=self.llm_tools_enabled,
             )
 
         self.llm_processor = LanguageModelProcessor(
@@ -840,6 +846,7 @@ class Glados:
             llm_request_timeout_s=config.llm_request_timeout_s,
             llm_ollama_options=config.llm_ollama_options,
             skip_extra_llm_context=config.skip_extra_llm_context,
+            llm_tools_enabled=config.llm_tools_enabled,
             vision_config=config.vision,
             autonomy_config=config.autonomy,
             mcp_servers=config.mcp_servers,

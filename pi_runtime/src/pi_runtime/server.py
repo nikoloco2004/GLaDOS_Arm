@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import socket
+import sys
 import time
 from typing import Any
 
@@ -21,8 +22,11 @@ from robot_link.messages import (
     FailsafePayload,
     HeartbeatPayload,
     HelloPayload,
+    TtsPcmPayload,
+    UserTextPayload,
 )
 
+from .audio_play import pcm_b64_to_numpy, play_float32_mono
 from .executor import execute_command
 from .safety import LinkWatchdog
 
@@ -43,9 +47,10 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
     watchdog.on_brain_message()
 
     host = socket.gethostname()
+    caps = ["stub_commands", "heartbeat", "voice_loop"]
     hello = Envelope(
         type="hello",
-        payload=HelloPayload(hostname=host, capabilities=["stub_commands", "heartbeat"]).to_dict(),
+        payload=HelloPayload(hostname=host, capabilities=caps).to_dict(),
     )
     await ws.send(hello.to_json())
 
@@ -71,6 +76,34 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
             await ws.send(hb.to_json())
 
     hb_task = asyncio.create_task(heartbeat_loop())
+
+    async def stdin_to_brain() -> None:
+        """Forward lines typed on the Pi (SSH/console) to the brain as user_text."""
+        loop = asyncio.get_event_loop()
+        while True:
+            line = await loop.run_in_executor(None, sys.stdin.readline)
+            if not line:
+                break
+            text = line.strip()
+            if not text:
+                continue
+            cid = str(time.time())
+            env = Envelope(
+                type="user_text",
+                payload=UserTextPayload(text=text, correlation_id=cid).to_dict(),
+            )
+            try:
+                await ws.send(env.to_json())
+                log.info("pi → brain user_text: %s", text[:120])
+            except Exception as e:
+                log.warning("send user_text failed: %s", e)
+                break
+
+    stdin_task: asyncio.Task | None = None
+    if sys.stdin.isatty() and os.environ.get("PI_VOICE_LOOP", "1") not in ("0", "false", "False"):
+        stdin_task = asyncio.create_task(stdin_to_brain())
+        log.info("voice loop: type lines on this terminal; they go to the PC brain (Ctrl+D to stop stdin)")
+
     try:
         async for raw in ws:
             watchdog.on_brain_message()
@@ -87,6 +120,22 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
                 continue
 
             if env.type in ("heartbeat_ack", "hello_ack"):
+                continue
+
+            if env.type == "tts_pcm":
+                p = env.payload
+                try:
+                    payload = TtsPcmPayload(
+                        pcm_b64=str(p.get("pcm_b64", "")),
+                        sample_rate=int(p.get("sample_rate", 22050)),
+                        text=str(p.get("text", "")),
+                        correlation_id=str(p.get("correlation_id", "")),
+                    )
+                    samples = pcm_b64_to_numpy(payload.pcm_b64)
+                    await asyncio.to_thread(play_float32_mono, samples, float(payload.sample_rate))
+                    log.info("played tts_pcm: %d samples @ %d Hz (%s)", samples.size, payload.sample_rate, payload.text[:80])
+                except Exception as e:
+                    log.exception("tts_pcm playback failed: %s", e)
                 continue
 
             if env.type == "command":
@@ -124,11 +173,24 @@ async def _handler(ws: WebSocketServerProtocol) -> None:
             await hb_task
         except asyncio.CancelledError:
             pass
+        if stdin_task:
+            stdin_task.cancel()
+            try:
+                await stdin_task
+            except asyncio.CancelledError:
+                pass
         log.info("brain disconnected: %s", peer)
 
 
 async def run_server(host: str, port: int) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    async with websockets.serve(_handler, host, port, ping_interval=20, ping_timeout=40):
+    async with websockets.serve(
+        _handler,
+        host,
+        port,
+        ping_interval=20,
+        ping_timeout=40,
+        max_size=12 * 1024 * 1024,
+    ):
         log.info("pi_runtime listening on ws://%s:%s", host, port)
         await asyncio.Future()

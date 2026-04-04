@@ -25,4 +25,6 @@ Windows PowerShell: `. .\scripts\brain_env.ps1` then either `. .\scripts\run_bra
 
 Full laptop/desktop setup and hotswap between main PC and laptop: [`docs/LAPTOP_BRAIN_SETUP.md`](../docs/LAPTOP_BRAIN_SETUP.md).
 
+**Pi keyboard → PC brain → Pi speaker:** [`docs/VOICE_LOOP_PI_PC.md`](../docs/VOICE_LOOP_PI_PC.md) (requires `personality_core` + Ollama on the PC).
+
 Sends `ping` then `neutral` (stub on Pi).

@@ -10,6 +10,8 @@ from .messages import (
     CommandPayload,
     CommandAckPayload,
     ActuatorResultPayload,
+    UserTextPayload,
+    TtsPcmPayload,
     ErrorPayload,
     FailsafePayload,
 )
@@ -24,6 +26,8 @@ __all__ = [
     "CommandPayload",
     "CommandAckPayload",
     "ActuatorResultPayload",
+    "UserTextPayload",
+    "TtsPcmPayload",
     "ErrorPayload",
     "FailsafePayload",
 ]

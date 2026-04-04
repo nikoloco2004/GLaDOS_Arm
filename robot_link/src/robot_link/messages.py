@@ -85,6 +85,30 @@ class ActuatorResultPayload:
 
 
 @dataclass
+class UserTextPayload:
+    """Pi → brain: user typed on the Pi (keyboard / local UI)."""
+
+    text: str = ""
+    correlation_id: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class TtsPcmPayload:
+    """Brain → Pi: float32 mono PCM for local speaker playback."""
+
+    pcm_b64: str = ""
+    sample_rate: int = 22050
+    text: str = ""
+    correlation_id: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class ErrorPayload:
     code: str = ""
     message: str = ""

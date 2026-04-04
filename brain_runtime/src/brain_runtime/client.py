@@ -13,6 +13,8 @@ from websockets.client import WebSocketClientProtocol
 from robot_link import Envelope
 from robot_link.messages import CommandPayload, HeartbeatAckPayload
 
+from . import pipeline
+
 log = logging.getLogger(__name__)
 
 
@@ -30,6 +32,7 @@ class BrainClient:
                     self.url,
                     ping_interval=20,
                     ping_timeout=40,
+                    max_size=12 * 1024 * 1024,
                 ) as ws:
                     log.info("connected to %s", self.url)
                     delay = self.reconnect_base_s
@@ -47,6 +50,14 @@ class BrainClient:
                     raw = raw.decode("utf-8")
                 env = Envelope.from_json(raw)
                 log.info("pi → %s %s", env.type, env.payload)
+
+                if env.type == "user_text":
+                    p = env.payload
+                    text = str(p.get("text", "")).strip()
+                    cid = str(p.get("correlation_id", ""))
+                    if text:
+                        await pipeline.handle_user_text(ws, text, cid)
+                    continue
         finally:
             keepalive.cancel()
             try:

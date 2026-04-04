@@ -3,10 +3,12 @@
  *
  * PCA9685 channels 0..3: wrist, elbow, base, shoulder (same as SET_SERVO order).
  *
+ * **Servo profile:** all four joints now use the same servo type.
+ *
  * **Angle → PWM (validated behavior):** each clamped joint angle is converted with a
- * **global** linear map `map(deg, 0, 270, PWM_TICK_MIN, PWM_TICK_MAX)` and passed
+ * **global** linear map `map(deg, 0, 270, PWM_TICK_ALL_MIN, PWM_TICK_ALL_MAX)` and passed
  * directly to `setPWM` as the third argument (12-bit tick counts), matching the
- * working prototype. Tune `PWM_TICK_MIN` / `PWM_TICK_MAX` if overall travel needs
+ * working prototype. Tune `PWM_TICK_ALL_MIN` / `PWM_TICK_ALL_MAX` if overall travel needs
  * scaling — not the logical angle limits below (those match Python / config).
  *
  * Libraries: Adafruit PWM Servo Driver Library + Adafruit BusIO
@@ -30,9 +32,9 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(PCA9685_I2C_ADDR);
 // ================= PCA9685 SETTINGS =================
 constexpr uint8_t SERVO_FREQ_HZ = 50;
 
-// PCA9685 "off" tick range for setPWM (third arg) — matched working sketch (102–512)
-constexpr uint16_t PWM_TICK_MIN = 102;
-constexpr uint16_t PWM_TICK_MAX = 512;
+// PCA9685 "off" tick range for setPWM (third arg) — single profile for all joints.
+constexpr uint16_t PWM_TICK_ALL_MIN = 102;
+constexpr uint16_t PWM_TICK_ALL_MAX = 512;
 
 // Global degree span for tick mapping (same for all joints after per-joint clamp)
 constexpr int ANGLE_MAP_GLOBAL_MIN = 0;
@@ -127,8 +129,8 @@ static uint16_t angleToPwmTicks(int deg) {
   long t = map(static_cast<long>(deg),
                static_cast<long>(ANGLE_MAP_GLOBAL_MIN),
                static_cast<long>(ANGLE_MAP_GLOBAL_MAX),
-               static_cast<long>(PWM_TICK_MIN),
-               static_cast<long>(PWM_TICK_MAX));
+               static_cast<long>(PWM_TICK_ALL_MIN),
+               static_cast<long>(PWM_TICK_ALL_MAX));
   if (t < 0L) t = 0L;
   if (t > 4095L) t = 4095L;
   return static_cast<uint16_t>(t);
@@ -416,7 +418,7 @@ void setup() {
   Serial.print(F("INFO PCA init delay ms="));
   Serial.println(PCA_BOOT_INIT_DELAY_MS);
 
-  Serial.println(F("OK GLaDOS_Arm ready (PCA9685 tick map 0-270 -> PWM_TICK_MIN/MAX)"));
+  Serial.println(F("OK GLaDOS_Arm ready (single-servo profile tick map 0-270 -> PWM_TICK_ALL_MIN/MAX)"));
   printHelp();
 }
 

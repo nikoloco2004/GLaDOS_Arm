@@ -67,7 +67,15 @@ pip install -e ".[cpu]"
 python -m glados.cli download
 ```
 
-With the venv activated, `glados.exe` is on `PATH`, so you can use `glados download` instead.
+If **`python -m pip install -U pip`** still says pip lives under **`C:\Python313\`** (or “Defaulting to user installation”), activation did not apply—often **execution policy** blocks `Activate.ps1`. Either run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or **avoid activation** and call the venv interpreter explicitly:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -U pip
+.\.venv\Scripts\python.exe -m pip install -e ".[cpu]"
+.\.venv\Scripts\python.exe -m glados.cli download
+```
+
+With the venv activated (or using `.\.venv\Scripts\python.exe`), `glados.exe` is under `.venv\Scripts`; add that folder to `PATH` or keep using `python -m glados.cli`.
 
 Linux/macOS:
 
@@ -103,7 +111,9 @@ uv run glados download
 
 ### 3.4a Windows: `pip` user install and `PATH`
 
-If you see **“Defaulting to user installation”** and warnings that `Scripts` is not on `PATH`, either:
+If you see **“Defaulting to user installation”** right after `Activate.ps1`, see the **execution policy / explicit `.\.venv\Scripts\python.exe`** note in §3.3a—you are still using the **system** `python`, not the venv.
+
+If installs went to the **user** site-packages and warnings say `Scripts` is not on `PATH`:
 
 - Add this folder to your user **PATH** (version may differ):
 
@@ -115,7 +125,7 @@ If you see **“Defaulting to user installation”** and warnings that `Scripts`
   python -m brain_runtime
   ```
 
-  After activating `personality_core\.venv`, use `glados ...` or `python -m glados.cli ...` the same way.
+  After a working venv activation, use `glados ...` or `python -m glados.cli ...`; with only user installs, the same commands still work if `python` resolves to the interpreter that has `glados` installed.
 
 ### 3.5 Ollama on the **brain** machine (laptop or main PC)
 

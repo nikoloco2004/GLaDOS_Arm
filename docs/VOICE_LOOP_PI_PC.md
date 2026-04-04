@@ -53,7 +53,10 @@ Audio should play on the **Pi** speaker after a short delay.
 | `OLLAMA_URL` | PC | Ollama base, default `http://127.0.0.1:11434`. |
 | `OLLAMA_MODEL` | PC | Default `llama3.2:1b`. |
 | `GLADOS_VOICE` | PC | TTS voice, default `glados`. |
-| `GLADOS_CHAT_SYSTEM_PROMPT` | PC | Short system prompt for chat (not full `pi_potato.yaml` unless you paste it). |
+| `GLADOS_CHAT_SYSTEM_PROMPT` | PC | Full system prompt override (optional). |
+| `GLADOS_SYSTEM_PROMPT_FILE` | PC | Path to a `.txt` system prompt (optional). |
+
+**Persona:** By default, `brain_runtime` loads **`configs/pi_potato_system_prompt.txt`** (Wheatley arc + potato state), same narrative as `configs/pi_potato.yaml`. Edit that `.txt` or the YAML to change behavior; keep them in sync if you use both GLaDOS on PC and the Pi voice loop.
 
 ## Pi audio: “Invalid sample rate” (ALSA)
 

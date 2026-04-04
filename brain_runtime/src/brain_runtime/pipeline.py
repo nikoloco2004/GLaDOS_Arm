@@ -7,6 +7,7 @@ import base64
 import logging
 import os
 import uuid
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -21,6 +22,7 @@ log = logging.getLogger(__name__)
 
 _ollama_chat_url: str | None = None
 _tts_model: Any = None
+_system_prompt_cache: str | None = None
 
 
 def _chat_url() -> str:
@@ -36,11 +38,35 @@ def _ollama_model() -> str:
 
 
 def _system_prompt() -> str:
-    return os.environ.get(
-        "GLADOS_CHAT_SYSTEM_PROMPT",
+    """Same persona as configs/pi_potato.yaml: env override, then pi_potato_system_prompt.txt."""
+    global _system_prompt_cache
+    if _system_prompt_cache is not None:
+        return _system_prompt_cache
+    if os.environ.get("GLADOS_CHAT_SYSTEM_PROMPT", "").strip():
+        _system_prompt_cache = os.environ["GLADOS_CHAT_SYSTEM_PROMPT"].strip()
+        return _system_prompt_cache
+    path_env = os.environ.get("GLADOS_SYSTEM_PROMPT_FILE", "").strip()
+    candidates: list[Path] = []
+    if path_env:
+        candidates.append(Path(path_env))
+    here = Path(__file__).resolve()
+    # .../GLaDOS_Arm/brain_runtime/src/brain_runtime/pipeline.py -> parents[3] == GLaDOS_Arm
+    candidates.append(here.parents[3] / "configs" / "pi_potato_system_prompt.txt")
+    candidates.append(Path.cwd() / "configs" / "pi_potato_system_prompt.txt")
+    for p in candidates:
+        try:
+            if p.is_file():
+                _system_prompt_cache = p.read_text(encoding="utf-8").strip()
+                log.info("brain pipeline: system prompt from %s", p)
+                return _system_prompt_cache
+        except OSError:
+            continue
+    _system_prompt_cache = (
         "You are GLaDOS from Portal and Portal 2. Short replies (one to three sentences). "
-        "Never use ALL CAPS (speech is read aloud). Dry, sarcastic, in character.",
+        "Never use ALL CAPS (speech is read aloud). Dry, sarcastic, in character."
     )
+    log.warning("brain pipeline: pi_potato_system_prompt.txt not found; using short default")
+    return _system_prompt_cache
 
 
 def _voice() -> str:

@@ -4,6 +4,16 @@ This note is for future work when **robot arm / movement** and **GLaDOS speaking
 
 ---
 
+## Frozen baseline (do not casually refactor)
+
+**User intent:** The **split-brain voice path is confirmed working** (Pi `pi_runtime` + PC `brain_runtime`, WebSocket, mic → ASR on PC, TTS on Pi). **Leave AI, ASR engines, recognition pipelines, and related personality_core/brain_runtime inference code untouched** unless there is an explicit request or a hard bug. Prefer **environment variables** and **config** for small tuning, not rewrites.
+
+**Future work (robot arm):** Run **in tandem** with this stack — keep **one long-lived `pi_runtime` process** on the Pi (WebSocket + audio + stdin loop). Extend **`pi_runtime` command / `executor` handling** and **`robot_link`** messages for arm motion; avoid a second process grabbing the same ALSA mic. Firmware: `firmware/GLaDOS_Arm/GLaDOS_Arm.ino` + serial from Pi as already planned in `docs/SPLIT_BRAIN_ARCHITECTURE.md`.
+
+**Bluetooth / AirPods Pi work** was **reverted** from `pi_runtime` mic logic; do not reintroduce “prefer USB over BT default” without a dedicated task.
+
+---
+
 ## Paths (this machine / Pi)
 
 | Role | Path |
@@ -55,7 +65,23 @@ Use this as a checklist when merging with arm control:
 
 ## Quick reference commands
 
-**Pi (after `cd` to repo):**
+**Pi (after `cd` to repo) — working mic + VAD + brain:**
+
+```bash
+cd ~/Documents/Cursor/GLaDOS_Arm
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+export PI_RUNTIME_HOST=0.0.0.0 PI_RUNTIME_PORT=8765
+export PI_STREAM_VOICE_DURING_TTS=1
+export PI_INTERRUPT_HITS=2
+export PI_INTERRUPT_DELAY_MS=400
+export PI_VAD_THRESHOLD=0.45
+export PI_MIC_DEBUG=1
+./.venv/bin/python -m pi_runtime
+```
+
+Pin the mic only if needed: `export GLADOS_SD_INPUT_DEVICE=<index>` (from `python -c "import sounddevice as sd; print(sd.query_devices())"`). Optional: `PI_MIC_INPUT_DEVICE=pulse` for PipeWire/Pulse logical device.
+
+**Minimal Pi (no extra tuning):**
 
 ```bash
 export PI_RUNTIME_HOST=0.0.0.0 PI_RUNTIME_PORT=8765
@@ -71,4 +97,4 @@ export PI_RUNTIME_HOST=0.0.0.0 PI_RUNTIME_PORT=8765
 
 ---
 
-*Last updated from assistant session: 2026-04-04 — GLaDOS split-brain, interrupts, failsafe, VAD, prompts.*
+*Last updated: 2026-04-04 — frozen “working” split-brain baseline; Pi launch block; explicit no-touch on AI/recognition; arm tandem notes.*

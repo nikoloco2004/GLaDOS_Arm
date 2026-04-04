@@ -12,8 +12,8 @@ Runs on the **Raspberry Pi**: WebSocket server, heartbeat, failsafe, command exe
 cd ~/Documents/Cursor/GLaDOS_Arm   # your clone path
 python3 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
-pip install -e ./robot_link -e ./pi_runtime
+python -m pip install --upgrade pip
+python -m pip install -e ./robot_link -e ./pi_runtime
 ```
 
 **Option B — reuse `personality_core`’s venv** (if you already use it for GLaDOS on the Pi):
@@ -21,10 +21,17 @@ pip install -e ./robot_link -e ./pi_runtime
 ```bash
 cd ~/Documents/Cursor/GLaDOS_Arm/personality_core
 source .venv/bin/activate
-pip install -e ../robot_link -e ../pi_runtime
+python -m pip install -e ../robot_link -e ../pi_runtime
 ```
 
-After either option, **`python` must be the venv’s** (`which python` should show `.../venv/bin/python`).
+Use **`python -m pip`**, not bare **`pip`**. On some setups `pip` resolves to the **system** installer and triggers PEP 668 even after `activate`; `python -m pip` always uses the venv’s Python.
+
+After either option, check:
+
+```bash
+which python    # …/GLaDOS_Arm/.venv/bin/python or …/personality_core/.venv/bin/python
+python -m pip --version   # should mention that same venv path
+```
 
 ## Run
 

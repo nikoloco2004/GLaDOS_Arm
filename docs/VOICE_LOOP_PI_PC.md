@@ -17,14 +17,14 @@ This path uses the existing WebSocket link:
 
 **Terminal 1 — Pi**
 
-First time only (from repo root): create venv and install packages — **do not use system `pip`** on Raspberry Pi OS.
+First time only (from repo root): create venv and install packages — **do not use system `pip`** on Raspberry Pi OS. Prefer **`python -m pip`** so you do not accidentally invoke `/usr/bin/pip` (PEP 668 error even with venv activated).
 
 ```bash
 cd ~/Documents/Cursor/GLaDOS_Arm
 python3 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
-pip install -e ./robot_link -e ./pi_runtime
+python -m pip install --upgrade pip
+python -m pip install -e ./robot_link -e ./pi_runtime
 ```
 
 Every session:

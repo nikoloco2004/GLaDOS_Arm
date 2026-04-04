@@ -69,13 +69,25 @@ That means the environment was created **without pip** (broken/minimal venv) or 
 
 ## Run
 
-Always **activate the venv** first, then:
+Use the **venv’s Python** (where `pi_runtime` is installed). If you see  
+`No module named pi_runtime.__main__` and the path is **`/usr/bin/python`**, you ran **system** Python instead of `.venv/bin/python`.
 
 ```bash
+cd ~/Documents/Cursor/GLaDOS_Arm   # repo root
 export PI_RUNTIME_HOST=0.0.0.0
 export PI_RUNTIME_PORT=8765
+./.venv/bin/python -m pi_runtime
+```
+
+Or activate first, then `python -m pi_runtime`:
+
+```bash
+source .venv/bin/activate
+export PI_RUNTIME_HOST=0.0.0.0 PI_RUNTIME_PORT=8765
 python -m pi_runtime
 ```
+
+Console script (same venv): **`pi-runtime`** (hyphen) after `activate`, or **`.venv/bin/pi-runtime`** from repo root.
 
 ### Always-on microphone (default)
 

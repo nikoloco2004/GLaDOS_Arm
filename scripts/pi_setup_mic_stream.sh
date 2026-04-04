@@ -62,8 +62,8 @@ cd "$ROOT/personality_core"
 "$PY" -m glados.cli download --sequential
 cd "$ROOT"
 
-echo "Done. Start pi_runtime with the same venv:"
-echo "  source .venv/bin/activate"
+echo "Done. Start pi_runtime with the SAME interpreter as above (not /usr/bin/python):"
 echo "  export PI_RUNTIME_HOST=0.0.0.0 PI_RUNTIME_PORT=8765"
-echo "  python -m pi_runtime"
+echo "  \"$PY\" -m pi_runtime"
+echo "Or: source .venv/bin/activate  # then  python -m pi_runtime"
 echo "Push-to-talk only: export PI_MIC_MODE=push"

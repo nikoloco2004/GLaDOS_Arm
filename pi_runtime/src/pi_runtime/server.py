@@ -39,6 +39,11 @@ from .safety import LinkWatchdog
 
 log = logging.getLogger(__name__)
 
+# One capture stream per mic (typical USB audio): a second brain client would start a second VAD
+# thread and get ALSA "Device unavailable". Reject extras so the first session keeps the mic.
+_brain_sessions = 0
+_brain_sessions_lock: asyncio.Lock | None = None
+
 
 def _env_float(name: str, default: float) -> float:
     try:
@@ -73,6 +78,30 @@ def _mic_stream_enabled() -> bool:
 
 
 async def _handler(ws: WebSocketServerProtocol) -> None:
+    global _brain_sessions
+    lock = _brain_sessions_lock
+    if lock is None:
+        raise RuntimeError("pi_runtime server lock not initialized (internal error)")
+    async with lock:
+        if _brain_sessions > 0:
+            log.warning(
+                "rejecting extra brain connection from %s (only one client; second would steal/break the mic)",
+                ws.remote_address,
+            )
+            await ws.close(
+                code=1008,
+                reason="pi_runtime: only one brain WebSocket at a time",
+            )
+            return
+        _brain_sessions += 1
+    try:
+        await _handler_session(ws)
+    finally:
+        async with lock:
+            _brain_sessions -= 1
+
+
+async def _handler_session(ws: WebSocketServerProtocol) -> None:
     peer = ws.remote_address
     log.info("brain connected: %s", peer)
     watchdog = LinkWatchdog(failsafe_s=_env_float("PI_FAILSAFE_S", 8.0))
@@ -471,7 +500,9 @@ def _format_listen_url(bind_host: str, port: int) -> str:
 
 
 async def run_server(host: str, port: int) -> None:
+    global _brain_sessions_lock
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    _brain_sessions_lock = asyncio.Lock()
 
     async def _serve_bound(bind_host: str) -> None:
         async with websockets.serve(

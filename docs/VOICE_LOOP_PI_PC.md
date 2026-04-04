@@ -46,6 +46,8 @@ When you see `voice loop: type lines on this terminal`, type a message and press
 
 **Terminal 2 — PC** (same venv as GLaDOS; `personality_core` + `brain_runtime` installed editable)
 
+While GLaDOS is speaking on the Pi, press **Enter** in **this same PC terminal** (even with an empty line) to **stop playback** on the Pi. A **non-empty** line stops playback and then sends that text to Ollama (like typing on the Pi). Disable with `$env:PC_STDIN_INTERRUPT = "0"` if you pipe stdin into `brain_runtime`.
+
 ```powershell
 cd C:\Users\pc\Documents\GLaDOS\GLaDOS_Arm\personality_core
 $env:PI_WS_URL = "ws://nicopi.local:8765"
@@ -65,6 +67,7 @@ Audio should play on the **Pi** speaker after a short delay.
 |----------|--------|---------|
 | `PI_VOICE_LOOP` | Pi | `0` to disable stdin → `user_text` (default `1`). |
 | `PI_WS_URL` | PC | WebSocket URL of the Pi. |
+| `PC_STDIN_INTERRUPT` | PC | Default `1`: **Enter** in the `brain_runtime` terminal sends `interrupt_playback` to the Pi (stops TTS). Set `0` if stdin is piped or non-interactive. |
 | `OLLAMA_URL` | PC | Ollama base (no path), default `http://127.0.0.1:11434`. Do **not** set `OLLAMA_URL=` empty in `brain.env`. |
 | `OLLAMA_HOST` | PC | Same as `OLLAMA_URL` if `OLLAMA_URL` is unset (alias for confused naming). |
 | `OLLAMA_MODEL` | PC | Default **`llama3.2`** (3B, matches upstream `glados_config.yaml`). Use `llama3.2:1b` only if Ollama runs on the Pi itself. |

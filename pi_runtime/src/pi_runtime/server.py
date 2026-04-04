@@ -166,6 +166,7 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
             ev.set()
 
     async def stdin_interrupt_and_stop_playback() -> None:
+        """Stop Pi speaker; optionally notify brain (same as GLaDOS stdin interrupt)."""
         if playback["stop"] is not None and _stdin_interrupt_enabled():
             try:
                 ui = Envelope(
@@ -180,8 +181,8 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
                 log.info("pi → brain user_interrupt (stdin) before new input")
             except Exception as e:
                 log.warning("send user_interrupt (stdin) failed: %s", e)
-        if _stdin_interrupt_enabled():
-            request_playback_stop()
+        # Always cut local audio (Enter / remote interrupt); PI_STDIN_INTERRUPT only gates user_interrupt above.
+        request_playback_stop()
 
     async def stdin_to_brain() -> None:
         """Forward lines typed on the Pi (SSH/console) to the brain as user_text or /mic PCM."""
@@ -249,6 +250,13 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
             )
         else:
             log.info("voice loop: type lines on this terminal → user_text (Ctrl+D to stop stdin)")
+        log.info("Pi SSH: Enter (even blank) stops TTS on the Pi speaker")
+    elif os.environ.get("PI_VOICE_LOOP", "1") not in ("0", "false", "False"):
+        log.warning(
+            "stdin is not a TTY — Pi keyboard voice loop disabled. "
+            "Use `ssh -t user@pi`, or press Enter in the **PC brain_runtime** terminal (after upgrade), "
+            "or `export PI_STREAM_VOICE_DURING_TTS=1` on the Pi for mic barge-in while she speaks."
+        )
 
     stream_stop = threading.Event()
     utterance_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=32)
@@ -319,11 +327,32 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
         except Exception as e:
             log.warning("VAD mic stream not started: %s", e)
 
+    # Inbound queue so we can process interrupt_playback while tts_pcm blocks in a thread (async for ws would stall).
+    in_q: asyncio.Queue[str | None] = asyncio.Queue(maxsize=256)
+
+    async def _pump_ws_inbound() -> None:
+        try:
+            async for raw in ws:
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+                await in_q.put(raw)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("ws recv ended: %s", e)
+        finally:
+            try:
+                await in_q.put(None)
+            except Exception:
+                pass
+
+    pump = asyncio.create_task(_pump_ws_inbound())
     try:
-        async for raw in ws:
+        while True:
+            raw = await in_q.get()
+            if raw is None:
+                break
             watchdog.on_brain_message()
-            if isinstance(raw, bytes):
-                raw = raw.decode("utf-8")
             try:
                 env = Envelope.from_json(raw)
             except Exception as e:
@@ -433,6 +462,28 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
 
             if env.type == "command":
                 p = env.payload
+                if str(p.get("name", "")).strip().lower() == "interrupt_playback":
+                    await stdin_interrupt_and_stop_playback()
+                    icid = str(p.get("correlation_id") or env.id)
+                    ack = Envelope(
+                        type="command_ack",
+                        payload=CommandAckPayload(
+                            correlation_id=icid,
+                            accepted=True,
+                            reason="interrupt_playback",
+                        ).to_dict(),
+                    )
+                    await ws.send(ack.to_json())
+                    res = Envelope(
+                        type="actuator_result",
+                        payload=ActuatorResultPayload(
+                            correlation_id=icid,
+                            ok=True,
+                            detail="interrupt_playback",
+                        ).to_dict(),
+                    )
+                    await ws.send(res.to_json())
+                    continue
                 cmd = CommandPayload(
                     name=str(p.get("name", "")),
                     args=dict(p.get("args") or {}),
@@ -461,6 +512,11 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
                 log.debug("ignored type=%s", env.type)
 
     finally:
+        pump.cancel()
+        try:
+            await pump
+        except asyncio.CancelledError:
+            pass
         stream_stop.set()
         if vad_task:
             vad_task.cancel()

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sys
 import time
 import uuid
 
@@ -57,6 +59,7 @@ class BrainClient:
 
     async def _session(self, ws: WebSocketClientProtocol) -> None:
         keepalive = asyncio.create_task(self._keepalive(ws))
+        pc_stdin = asyncio.create_task(self._pc_stdin_interrupt(ws))
         try:
             async for raw in ws:
                 if isinstance(raw, bytes):
@@ -88,11 +91,41 @@ class BrainClient:
                         await pipeline.handle_user_audio_pcm(ws, pcm, sr, cid)
                     continue
         finally:
+            pc_stdin.cancel()
+            try:
+                await pc_stdin
+            except asyncio.CancelledError:
+                pass
             keepalive.cancel()
             try:
                 await keepalive
             except asyncio.CancelledError:
                 pass
+
+    async def _pc_stdin_interrupt(self, ws: WebSocketClientProtocol) -> None:
+        """Enter in the brain terminal stops Pi TTS; a non-empty line also runs the LLM (like Pi SSH)."""
+        if os.environ.get("PC_STDIN_INTERRUPT", "1").strip().lower() in ("0", "false", "no", "off"):
+            return
+        if not sys.stdin.isatty():
+            log.info(
+                "PC stdin interrupt off (not a TTY). Use Pi SSH Enter, or mic barge-in: PI_STREAM_VOICE_DURING_TTS=1 on Pi."
+            )
+            return
+        log.info("PC brain: Enter = stop Pi TTS; text + Enter = stop + send line to GLaDOS")
+        loop = asyncio.get_event_loop()
+        try:
+            while True:
+                line = await loop.run_in_executor(None, sys.stdin.readline)
+                if not line:
+                    break
+                text = line.strip()
+                await self._send_command(ws, "interrupt_playback", {})
+                if text:
+                    await pipeline.handle_user_text(ws, text, str(time.time()))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("PC stdin interrupt loop: %s", e)
 
     async def _keepalive(self, ws: WebSocketClientProtocol) -> None:
         """Periodic traffic so Pi watchdog sees brain activity."""

@@ -343,7 +343,15 @@ class SoundDeviceAudioIO:
         if self._output_device is not None:
             play_kw["device"] = self._output_device
         sd.play(play_data, out_sr, **play_kw)
-        sd.wait()
+        # Do not block on sd.wait() alone: on some Windows/WASAPI setups, stop_speaking()
+        # from the SpeechListener thread does not unblock wait(), so interrupts fail.
+        waiter = threading.Thread(target=sd.wait, name="glados-sd-wait", daemon=True)
+        waiter.start()
+        while waiter.is_alive():
+            if self._stop_event.is_set():
+                sd.stop()
+                break
+            waiter.join(timeout=0.03)
         interrupted = self._stop_event.is_set()
         if not interrupted:
             self._is_playing = False

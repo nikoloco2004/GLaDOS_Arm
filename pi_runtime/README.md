@@ -128,7 +128,7 @@ python3 -m pi_runtime
 | `PI_VAD_THRESHOLD` | `0.5` | Silero speech score threshold; **lower = more sensitive** (try `0.35`–`0.45` if still nothing; `0.65`–`0.8` if noisy false triggers). |
 | `PI_VAD_PAUSE_MS` | `640` | Ms of **silence** after speech before an utterance is sent (shorter = snappier; too low may split phrases). |
 | `PI_MIC_DEBUG` | off | `1` → log capture **RMS** every ~1.5s (if RMS ~0, OS mic gain/mute is the problem). |
-| `GLADOS_SD_INPUT_DEVICE` / `PI_SD_INPUT_DEVICE` | default | PortAudio **input** index if the wrong mic is captured (see `./.venv/bin/python -c "import sounddevice as sd; print(sd.query_devices())"`). |
+| `PI_MIC_INPUT_DEVICE` / `GLADOS_SD_INPUT_DEVICE` / `PI_SD_INPUT_DEVICE` | default | **Index** (e.g. `0`) **or** ALSA logical name: **`pulse`** / **`default`** (PipeWire/Pulse). Use **`pulse`** if direct `hw:*` shows **RMS=0** in `PI_MIC_DEBUG` but the mic works in `pavucontrol`. |
 | `PI_MIC_PREFER_USB` | `1` | After pairing **Bluetooth** headphones, PipeWire often sets the **default input** to HFP/BlueZ (can be silent). When `1`, skip BT-looking defaults and use wired **USB** capture. Set `0` to use the default input as-is (e.g. AirPods mic). |
 | `PI_AUDIO_OUTPUT_SR` / `GLADOS_AUDIO_OUTPUT_SR` | probe | Force TTS output sample rate (e.g. `48000`) if ALSA is picky |
 | `GLADOS_SD_OUTPUT_DEVICE` / `PI_SD_OUTPUT_DEVICE` | *(auto)* | PortAudio **output** index, or **`default`** / **`pulse`** / **`sysdefault`** for PipeWire/Pulse (Bluetooth often only appears there). Use an index for a specific USB speaker. |

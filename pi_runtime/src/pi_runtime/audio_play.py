@@ -540,10 +540,10 @@ def _voice_interrupt_enabled() -> bool:
     )
 
 
-def _input_dev() -> int:
-    from .mic_stream_vad import mic_input_device_index
+def _input_dev() -> int | str:
+    from .mic_stream_vad import mic_input_device_spec
 
-    return mic_input_device_index()
+    return mic_input_device_spec()
 
 
 def _default_input_sr() -> float:

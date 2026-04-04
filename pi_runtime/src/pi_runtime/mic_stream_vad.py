@@ -8,6 +8,7 @@ import queue
 import threading
 import time
 from collections import deque
+from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -18,6 +19,9 @@ except ImportError as e:  # pragma: no cover
     raise ImportError("mic stream requires sounddevice: pip install sounddevice") from e
 
 log = logging.getLogger(__name__)
+
+# PortAudio: int index or ALSA logical name (pulse/default = PipeWire/Pulse; fixes RMS=0 vs bare hw:*).
+InputDeviceSpec: TypeAlias = int | str
 
 
 def mic_mode_wants_continuous_stream() -> bool:
@@ -213,16 +217,26 @@ def _first_wired_usbish_input_device() -> int | None:
     return None
 
 
-def _input_dev() -> int:
-    raw = os.environ.get("GLADOS_SD_INPUT_DEVICE", "").strip() or os.environ.get(
-        "PI_SD_INPUT_DEVICE", ""
-    ).strip()
-    if raw:
-        try:
-            return int(raw)
-        except ValueError:
-            pass
+def _env_raw_input_device() -> str | None:
+    for key in ("PI_MIC_INPUT_DEVICE", "GLADOS_SD_INPUT_DEVICE", "PI_SD_INPUT_DEVICE"):
+        v = os.environ.get(key, "").strip()
+        if v:
+            return v
+    return None
 
+
+def _parse_input_spec(raw: str) -> InputDeviceSpec:
+    low = raw.lower()
+    if low in ("pulse", "default", "pipewire", "sysdefault", "dmix"):
+        return low
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
+def _default_int_input_device() -> int:
+    """PortAudio index when no env override; avoid BT default when PI_MIC_PREFER_USB=1."""
     try:
         def_idx = int(sd.default.device[0])
     except Exception:
@@ -262,12 +276,26 @@ def _input_dev() -> int:
     return def_idx
 
 
+def mic_input_device_spec() -> InputDeviceSpec:
+    """Input for VAD, /mic, interrupt: int index or ALSA name (e.g. ``pulse`` when hw:* gives RMS=0)."""
+    raw = _env_raw_input_device()
+    if raw:
+        return _parse_input_spec(raw)
+    return _default_int_input_device()
+
+
 def mic_input_device_index() -> int:
-    """Same input selection as continuous VAD: env override, then avoid BT default when PI_MIC_PREFER_USB=1."""
-    return _input_dev()
+    """Backward compat — only works when the resolved device is an integer."""
+    d = mic_input_device_spec()
+    if isinstance(d, int):
+        return d
+    raise TypeError(
+        "Input device is %r (use mic_input_device_spec() with sounddevice); set PI_MIC_INPUT_DEVICE to an int index."
+        % (d,)
+    )
 
 
-def _default_samplerate_for_device(dev: int) -> float:
+def _default_samplerate_for_device(dev: InputDeviceSpec) -> float:
     try:
         info = sd.query_devices(dev, "input")
         sr = float(info.get("default_samplerate") or 0.0)
@@ -278,7 +306,7 @@ def _default_samplerate_for_device(dev: int) -> float:
     return 48000.0
 
 
-def _ordered_input_samplerates(device: int) -> list[float]:
+def _ordered_input_samplerates(device: InputDeviceSpec) -> list[float]:
     """Try 16 kHz first (VAD/ASR), then PortAudio default, then common ALSA rates."""
     d = _default_samplerate_for_device(device)
     preferred = [16000.0]
@@ -368,7 +396,7 @@ def run_vad_stream_thread(
 
     thr = float(vad_threshold) if vad_threshold is not None else _vad_threshold_from_env()
     det = _UtteranceDetector(vad, thr)
-    dev = _input_dev()
+    dev = mic_input_device_spec()
     pending = np.array([], dtype=np.float32)
 
     def make_callback(hw_sr: float):
@@ -449,6 +477,12 @@ def run_vad_stream_thread(
                 in_name,
                 thr,
             )
+            if isinstance(dev, str):
+                log.info(
+                    "Pi VAD: ALSA logical input %r (PipeWire/Pulse). If hw:* was RMS=0, keep PI_MIC_INPUT_DEVICE=%s.",
+                    dev,
+                    dev,
+                )
             log.info(
                 "Pi VAD stream: capture @ %.0f Hz block=%d → resampled 16 kHz / 512 for Silero",
                 sr,

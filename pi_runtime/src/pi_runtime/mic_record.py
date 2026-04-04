@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import numpy as np
 from numpy.typing import NDArray
@@ -16,23 +15,13 @@ except ImportError as e:  # pragma: no cover
 log = logging.getLogger(__name__)
 
 
-def _input_dev() -> int:
-    raw = os.environ.get("GLADOS_SD_INPUT_DEVICE", "").strip() or os.environ.get(
-        "PI_SD_INPUT_DEVICE", ""
-    ).strip()
-    if raw:
-        try:
-            return int(raw)
-        except ValueError:
-            pass
-    return int(sd.default.device[0])
-
-
 def record_mic_float32_mono(seconds: float) -> tuple[NDArray[np.float32], float]:
     """Block until ``seconds`` of audio are captured; return (samples, sample_rate)."""
     if seconds <= 0:
         return np.array([], dtype=np.float32), 16000.0
-    dev = _input_dev()
+    from .mic_stream_vad import mic_input_device_index
+
+    dev = mic_input_device_index()
     try:
         info = sd.query_devices(dev, "input")
         fs = float(info.get("default_samplerate") or 16000.0)

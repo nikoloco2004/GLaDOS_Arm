@@ -541,15 +541,9 @@ def _voice_interrupt_enabled() -> bool:
 
 
 def _input_dev() -> int:
-    raw = os.environ.get("GLADOS_SD_INPUT_DEVICE", "").strip() or os.environ.get(
-        "PI_SD_INPUT_DEVICE", ""
-    ).strip()
-    if raw:
-        try:
-            return int(raw)
-        except ValueError:
-            pass
-    return int(sd.default.device[0])
+    from .mic_stream_vad import mic_input_device_index
+
+    return mic_input_device_index()
 
 
 def _default_input_sr() -> float:

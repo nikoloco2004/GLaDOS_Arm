@@ -166,6 +166,53 @@ def vad_stream_available() -> bool:
         return False
 
 
+def _sd_num_devices() -> int:
+    try:
+        d = sd.query_devices()
+        if isinstance(d, np.ndarray):
+            return int(d.shape[0])
+        return len(d)
+    except Exception:
+        return 0
+
+
+def _name_looks_like_bluetooth_input(name: str) -> bool:
+    """PipeWire often makes AirPods HFP the default *input*; capture can be silent or wrong."""
+    n = name.lower()
+    if "bluez" in n:
+        return True
+    if "bluetooth" in n and "usb" not in n:
+        return True
+    return False
+
+
+def _first_wired_usbish_input_device() -> int | None:
+    """Prefer USB Composite / UAC dongle capture when BT is not the intended mic."""
+    n = _sd_num_devices()
+    usbish: list[int] = []
+    other: list[int] = []
+    for i in range(n):
+        try:
+            info = sd.query_devices(i)
+        except Exception:
+            continue
+        if int(info.get("max_input_channels") or 0) <= 0:
+            continue
+        name = str(info.get("name", ""))
+        if _name_looks_like_bluetooth_input(name):
+            continue
+        low = name.lower()
+        if any(x in low for x in ("usb", "composite", "uac", "codec")):
+            usbish.append(i)
+        else:
+            other.append(i)
+    if usbish:
+        return usbish[0]
+    if other:
+        return other[0]
+    return None
+
+
 def _input_dev() -> int:
     raw = os.environ.get("GLADOS_SD_INPUT_DEVICE", "").strip() or os.environ.get(
         "PI_SD_INPUT_DEVICE", ""
@@ -175,7 +222,49 @@ def _input_dev() -> int:
             return int(raw)
         except ValueError:
             pass
-    return int(sd.default.device[0])
+
+    try:
+        def_idx = int(sd.default.device[0])
+    except Exception:
+        return 0
+
+    prefer_usb = os.environ.get("PI_MIC_PREFER_USB", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    if not prefer_usb:
+        return def_idx
+
+    try:
+        def_name = str(sd.query_devices(def_idx, "input").get("name", ""))
+    except Exception:
+        return def_idx
+
+    if not _name_looks_like_bluetooth_input(def_name):
+        return def_idx
+
+    alt = _first_wired_usbish_input_device()
+    if alt is not None and alt != def_idx:
+        try:
+            alt_name = str(sd.query_devices(alt, "input").get("name", ""))
+        except Exception:
+            alt_name = "?"
+        log.info(
+            "Pi VAD: default input looks like Bluetooth (%s); using wired/USB capture device %s — %s "
+            "(pairing AirPods can steal the default; GLADOS_SD_INPUT_DEVICE=N or PI_MIC_PREFER_USB=0 to override)",
+            def_name,
+            alt,
+            alt_name,
+        )
+        return alt
+    return def_idx
+
+
+def mic_input_device_index() -> int:
+    """Same input selection as continuous VAD: env override, then avoid BT default when PI_MIC_PREFER_USB=1."""
+    return _input_dev()
 
 
 def _default_samplerate_for_device(dev: int) -> float:

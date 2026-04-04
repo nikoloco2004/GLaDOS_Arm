@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from typing import Any, TypeAlias
@@ -261,15 +262,34 @@ def _probe_output_stream(sr: float, channels: int, device: OutputDeviceSpec) -> 
 
 
 def _find_pulse_cli() -> list[str] | None:
-    """paplay (PulseAudio utils) or pw-play (PipeWire); same default sink as desktop/music."""
-    for name in ("paplay", "pw-play"):
+    """Prefer pw-play (PipeWire native), then paplay (Pulse compat). Same default sink as desktop/music."""
+    for name in ("pw-play", "paplay"):
         p = shutil.which(name)
         if p:
             return [p]
     return None
 
 
-def _pulse_cli_play_argv(cli: list[str], rate: int, channels: int) -> list[str]:
+def _pulse_cli_env() -> dict[str, str]:
+    """SSH sessions often omit XDG_RUNTIME_DIR; Pulse/PipeWire sockets live under /run/user/<uid>."""
+    env = os.environ.copy()
+    uid = os.getuid()
+    if not env.get("XDG_RUNTIME_DIR"):
+        candidate = f"/run/user/{uid}"
+        if os.path.isdir(candidate):
+            env["XDG_RUNTIME_DIR"] = candidate
+    rdir = env.get("XDG_RUNTIME_DIR", "")
+    if rdir:
+        pulse_native = os.path.join(rdir, "pulse", "native")
+        try:
+            if os.path.exists(pulse_native) and not env.get("PULSE_SERVER"):
+                env["PULSE_SERVER"] = f"unix:{pulse_native}"
+        except OSError:
+            pass
+    return env
+
+
+def _pulse_cli_play_argv(cli: list[str], rate: int, channels: int, path: str = "-") -> list[str]:
     exe = os.path.basename(cli[0]).lower()
     if exe == "paplay":
         return [
@@ -277,7 +297,7 @@ def _pulse_cli_play_argv(cli: list[str], rate: int, channels: int) -> list[str]:
             "--format=float32le",
             f"--rate={rate}",
             f"--channels={channels}",
-            "-",
+            path,
         ]
     if exe == "pw-play":
         return [
@@ -285,7 +305,7 @@ def _pulse_cli_play_argv(cli: list[str], rate: int, channels: int) -> list[str]:
             f"--rate={rate}",
             "--format=F32_LE",
             f"--channels={channels}",
-            "-",
+            path,
         ]
     return []
 
@@ -324,13 +344,98 @@ def _try_pulse_cli_fallback_cache() -> bool:
     return True
 
 
+def _pulse_cli_run_once(
+    cli: list[str],
+    rate_i: int,
+    out_ch: int,
+    play_bytes: bytes,
+    stop_event: threading.Event,
+    source: str | None,
+) -> tuple[int | None, bytes, bool]:
+    """Play raw float32 bytes. ``source`` is None → pipe stdin; else path to a file. Returns (code, stderr, interrupted)."""
+    env = _pulse_cli_env()
+    argv = _pulse_cli_play_argv(cli, rate_i, out_ch, "-" if source is None else source)
+    if not argv:
+        return None, b"", False
+
+    chunk_bytes = max(4096, int(os.environ.get("PI_PAPLAY_CHUNK_BYTES", "262144")))
+    proc: Any = None
+    writer_t: threading.Thread | None = None
+
+    try:
+        if source is None:
+            proc = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                env=env,
+            )
+
+            def writer() -> None:
+                assert proc is not None and proc.stdin is not None
+                pos = 0
+                try:
+                    while pos < len(play_bytes) and not stop_event.is_set():
+                        n = min(chunk_bytes, len(play_bytes) - pos)
+                        proc.stdin.write(play_bytes[pos : pos + n])
+                        pos += n
+                except BrokenPipeError:
+                    pass
+                except Exception as e:
+                    if _audio_debug():
+                        log.debug("pulse_cli writer: %s", e)
+                finally:
+                    try:
+                        proc.stdin.close()
+                    except Exception:
+                        pass
+
+            writer_t = threading.Thread(target=writer, daemon=True)
+            writer_t.start()
+        else:
+            proc = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                env=env,
+            )
+
+        assert proc is not None
+        while proc.poll() is None:
+            if stop_event.is_set():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1.5)
+                except Exception:
+                    pass
+                if writer_t is not None:
+                    writer_t.join(timeout=0.5)
+                return proc.returncode, b"", True
+            time.sleep(0.02)
+
+        if writer_t is not None:
+            writer_t.join(timeout=2.0)
+        err = b""
+        try:
+            if proc.stderr:
+                err = proc.stderr.read() or b""
+        except Exception:
+            pass
+        return proc.returncode, err, stop_event.is_set()
+    except OSError as e:
+        log.warning("pulse_cli failed to start: %s", e)
+        return None, str(e).encode(), stop_event.is_set()
+
+
 def _play_pulse_cli_interruptible(
     samples: NDArray[np.float32],
     sample_rate: float,
     stop_event: threading.Event,
     out_sr: float,
 ) -> bool:
-    """Play via paplay/pw-play stdin; interrupt kills the subprocess."""
+    """Play via pw-play/paplay; interrupt kills the subprocess. Fixes SSH env + stdin quirks."""
     cli = _cached_pulse_cli
     if not cli:
         return False
@@ -342,8 +447,7 @@ def _play_pulse_cli_interruptible(
         log.debug("Resampled playback %.0f Hz -> %.0f Hz for pulse_cli", sample_rate, out_sr)
 
     rate_i = int(round(out_sr))
-    argv = _pulse_cli_play_argv(cli, rate_i, out_ch)
-    if not argv:
+    if not _pulse_cli_play_argv(cli, rate_i, out_ch, "-"):
         return False
 
     if out_ch == 2:
@@ -353,62 +457,47 @@ def _play_pulse_cli_interruptible(
     else:
         play_bytes = play_data.tobytes()
 
-    chunk_bytes = max(4096, int(os.environ.get("PI_PAPLAY_CHUNK_BYTES", "262144")))
+    code, err, intr = _pulse_cli_run_once(cli, rate_i, out_ch, play_bytes, stop_event, source=None)
+    if intr:
+        return True
 
-    try:
-        proc = subprocess.Popen(
-            argv,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+    ok = code in (0, None) or code in (-15, -9)
+    if not ok and not stop_event.is_set():
+        hint = err[:200].decode(errors="replace") if err else ""
+        log.info(
+            "pulse_cli (stdin) failed (exit %s); retrying via temp file. stderr: %s",
+            code,
+            hint,
         )
-    except OSError as e:
-        log.warning("pulse_cli playback failed to start: %s", e)
-        return stop_event.is_set()
-
-    def writer() -> None:
-        assert proc.stdin is not None
-        pos = 0
+        fd, path = tempfile.mkstemp(prefix="glados_tts_", suffix=".raw")
         try:
-            while pos < len(play_bytes) and not stop_event.is_set():
-                n = min(chunk_bytes, len(play_bytes) - pos)
-                proc.stdin.write(play_bytes[pos : pos + n])
-                pos += n
-        except BrokenPipeError:
-            pass
-        except Exception as e:
-            if _audio_debug():
-                log.debug("pulse_cli writer: %s", e)
+            os.write(fd, play_bytes)
+            os.close(fd)
+            code2, err2, intr2 = _pulse_cli_run_once(cli, rate_i, out_ch, play_bytes, stop_event, source=path)
+            if intr2:
+                return True
+            ok2 = code2 in (0, None) or code2 in (-15, -9)
+            if not ok2:
+                log.warning(
+                    "pulse_cli (file) exited %s: %s",
+                    code2,
+                    (err2[:400].decode(errors="replace") if err2 else ""),
+                )
+            else:
+                log.debug("pulse_cli temp file playback succeeded")
+            return stop_event.is_set()
         finally:
             try:
-                proc.stdin.close()
-            except Exception:
+                os.unlink(path)
+            except OSError:
                 pass
 
-    t = threading.Thread(target=writer, daemon=True)
-    t.start()
-
-    while proc.poll() is None:
-        if stop_event.is_set():
-            proc.terminate()
-            try:
-                proc.wait(timeout=1.5)
-            except Exception:
-                pass
-            t.join(timeout=0.5)
-            return True
-        time.sleep(0.02)
-
-    t.join(timeout=2.0)
-    err = b""
-    try:
-        if proc.stderr:
-            err = proc.stderr.read() or b""
-    except Exception:
-        pass
-    code = proc.returncode
-    if code not in (0, None, -15, -9):  # 0 ok; -15/-9 SIGTERM/SIGKILL (interrupt)
-        log.warning("pulse_cli exited %s: %s", code, err[:400].decode(errors="replace"))
+    if not ok:
+        log.warning(
+            "pulse_cli exited %s: %s",
+            code,
+            err[:400].decode(errors="replace") if err else "",
+        )
     return stop_event.is_set()
 
 

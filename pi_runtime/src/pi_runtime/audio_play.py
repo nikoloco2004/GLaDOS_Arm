@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import wave
 from typing import Any, TypeAlias
 
 import numpy as np
@@ -262,12 +263,39 @@ def _probe_output_stream(sr: float, channels: int, device: OutputDeviceSpec) -> 
 
 
 def _find_pulse_cli() -> list[str] | None:
-    """Prefer pw-play (PipeWire native), then paplay (Pulse compat). Same default sink as desktop/music."""
-    for name in ("pw-play", "paplay"):
+    """First match on PATH for cache/logging: prefer paplay (Pulse), then pw-play (PipeWire)."""
+    for name in ("paplay", "pw-play"):
         p = shutil.which(name)
         if p:
             return [p]
     return None
+
+
+def _list_pulse_cli_exes() -> list[str]:
+    """Try paplay first (raw PCM / Pulse), then pw-play; both accept WAV via libsndfile."""
+    out: list[str] = []
+    for name in ("paplay", "pw-play"):
+        p = shutil.which(name)
+        if p:
+            out.append(p)
+    return out
+
+
+def _write_wav_s16(path: str, samples_f32_mono: NDArray[np.float32], sample_rate: float, channels: int) -> None:
+    """Standard PCM WAV (S16 LE). pw-play/paplay open this reliably; raw float/``.raw`` is not."""
+    mono = np.asarray(samples_f32_mono, dtype=np.float32).reshape(-1)
+    s16 = np.clip(mono.astype(np.float64) * 32767.0, -32768, 32767).astype(np.int16)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(2)
+        w.setframerate(int(round(sample_rate)))
+        if channels == 2:
+            inter = np.empty((s16.shape[0] * 2,), dtype=np.int16)
+            inter[0::2] = s16
+            inter[1::2] = s16
+            w.writeframes(inter.tobytes())
+        else:
+            w.writeframes(s16.tobytes())
 
 
 def _pulse_cli_env() -> dict[str, str]:
@@ -287,27 +315,6 @@ def _pulse_cli_env() -> dict[str, str]:
         except OSError:
             pass
     return env
-
-
-def _pulse_cli_play_argv(cli: list[str], rate: int, channels: int, path: str = "-") -> list[str]:
-    exe = os.path.basename(cli[0]).lower()
-    if exe == "paplay":
-        return [
-            cli[0],
-            "--format=float32le",
-            f"--rate={rate}",
-            f"--channels={channels}",
-            path,
-        ]
-    if exe == "pw-play":
-        return [
-            cli[0],
-            f"--rate={rate}",
-            "--format=F32_LE",
-            f"--channels={channels}",
-            path,
-        ]
-    return []
 
 
 def _try_pulse_cli_fallback_cache() -> bool:
@@ -338,95 +345,10 @@ def _try_pulse_cli_fallback_cache() -> bool:
     _cached_out_channels = ch
     _cached_output_device = None
     log.info(
-        "Pi TTS playback: using %s fallback (PortAudio opened no device; PipeWire/Pulse CLI).",
+        "Pi TTS playback: using %s fallback — S16 WAV via CLI (PortAudio opened no device).",
         os.path.basename(cli[0]),
     )
     return True
-
-
-def _pulse_cli_run_once(
-    cli: list[str],
-    rate_i: int,
-    out_ch: int,
-    play_bytes: bytes,
-    stop_event: threading.Event,
-    source: str | None,
-) -> tuple[int | None, bytes, bool]:
-    """Play raw float32 bytes. ``source`` is None → pipe stdin; else path to a file. Returns (code, stderr, interrupted)."""
-    env = _pulse_cli_env()
-    argv = _pulse_cli_play_argv(cli, rate_i, out_ch, "-" if source is None else source)
-    if not argv:
-        return None, b"", False
-
-    chunk_bytes = max(4096, int(os.environ.get("PI_PAPLAY_CHUNK_BYTES", "262144")))
-    proc: Any = None
-    writer_t: threading.Thread | None = None
-
-    try:
-        if source is None:
-            proc = subprocess.Popen(
-                argv,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                env=env,
-            )
-
-            def writer() -> None:
-                assert proc is not None and proc.stdin is not None
-                pos = 0
-                try:
-                    while pos < len(play_bytes) and not stop_event.is_set():
-                        n = min(chunk_bytes, len(play_bytes) - pos)
-                        proc.stdin.write(play_bytes[pos : pos + n])
-                        pos += n
-                except BrokenPipeError:
-                    pass
-                except Exception as e:
-                    if _audio_debug():
-                        log.debug("pulse_cli writer: %s", e)
-                finally:
-                    try:
-                        proc.stdin.close()
-                    except Exception:
-                        pass
-
-            writer_t = threading.Thread(target=writer, daemon=True)
-            writer_t.start()
-        else:
-            proc = subprocess.Popen(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                env=env,
-            )
-
-        assert proc is not None
-        while proc.poll() is None:
-            if stop_event.is_set():
-                proc.terminate()
-                try:
-                    proc.wait(timeout=1.5)
-                except Exception:
-                    pass
-                if writer_t is not None:
-                    writer_t.join(timeout=0.5)
-                return proc.returncode, b"", True
-            time.sleep(0.02)
-
-        if writer_t is not None:
-            writer_t.join(timeout=2.0)
-        err = b""
-        try:
-            if proc.stderr:
-                err = proc.stderr.read() or b""
-        except Exception:
-            pass
-        return proc.returncode, err, stop_event.is_set()
-    except OSError as e:
-        log.warning("pulse_cli failed to start: %s", e)
-        return None, str(e).encode(), stop_event.is_set()
 
 
 def _play_pulse_cli_interruptible(
@@ -435,10 +357,12 @@ def _play_pulse_cli_interruptible(
     stop_event: threading.Event,
     out_sr: float,
 ) -> bool:
-    """Play via pw-play/paplay; interrupt kills the subprocess. Fixes SSH env + stdin quirks."""
-    cli = _cached_pulse_cli
-    if not cli:
+    """Play via ``paplay`` / ``pw-play`` on a temp **WAV** file (libsndfile cannot play raw float from ``-``)."""
+    exes = _list_pulse_cli_exes()
+    if not exes:
+        log.warning("pulse_cli: no paplay or pw-play on PATH")
         return False
+
     out_ch = int(_cached_out_channels or 1)
     if abs(float(sample_rate) - out_sr) < 0.5:
         play_data = np.asarray(samples, dtype=np.float32).reshape(-1)
@@ -446,59 +370,54 @@ def _play_pulse_cli_interruptible(
         play_data = _resample_linear_mono(samples, float(sample_rate), out_sr)
         log.debug("Resampled playback %.0f Hz -> %.0f Hz for pulse_cli", sample_rate, out_sr)
 
-    rate_i = int(round(out_sr))
-    if not _pulse_cli_play_argv(cli, rate_i, out_ch, "-"):
-        return False
-
-    if out_ch == 2:
-        x = play_data.reshape(-1, 1)
-        inter = np.concatenate([x, x], axis=1).astype(np.float32)
-        play_bytes = inter.reshape(-1).tobytes()
-    else:
-        play_bytes = play_data.tobytes()
-
-    code, err, intr = _pulse_cli_run_once(cli, rate_i, out_ch, play_bytes, stop_event, source=None)
-    if intr:
-        return True
-
-    ok = code in (0, None) or code in (-15, -9)
-    if not ok and not stop_event.is_set():
-        hint = err[:200].decode(errors="replace") if err else ""
-        log.info(
-            "pulse_cli (stdin) failed (exit %s); retrying via temp file. stderr: %s",
-            code,
-            hint,
-        )
-        fd, path = tempfile.mkstemp(prefix="glados_tts_", suffix=".raw")
-        try:
-            os.write(fd, play_bytes)
-            os.close(fd)
-            code2, err2, intr2 = _pulse_cli_run_once(cli, rate_i, out_ch, play_bytes, stop_event, source=path)
-            if intr2:
-                return True
-            ok2 = code2 in (0, None) or code2 in (-15, -9)
-            if not ok2:
-                log.warning(
-                    "pulse_cli (file) exited %s: %s",
-                    code2,
-                    (err2[:400].decode(errors="replace") if err2 else ""),
-                )
-            else:
-                log.debug("pulse_cli temp file playback succeeded")
-            return stop_event.is_set()
-        finally:
+    fd, wav_path = tempfile.mkstemp(prefix="glados_tts_", suffix=".wav")
+    try:
+        os.close(fd)
+        _write_wav_s16(wav_path, play_data, out_sr, out_ch)
+        env = _pulse_cli_env()
+        for exe in exes:
             try:
-                os.unlink(path)
-            except OSError:
+                proc = subprocess.Popen(
+                    [exe, wav_path],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    env=env,
+                )
+            except OSError as e:
+                log.warning("pulse_cli %s failed to start: %s", os.path.basename(exe), e)
+                continue
+            while proc.poll() is None:
+                if stop_event.is_set():
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1.5)
+                    except Exception:
+                        pass
+                    return True
+                time.sleep(0.02)
+            err = b""
+            try:
+                if proc.stderr:
+                    err = proc.stderr.read() or b""
+            except Exception:
                 pass
-
-    if not ok:
-        log.warning(
-            "pulse_cli exited %s: %s",
-            code,
-            err[:400].decode(errors="replace") if err else "",
-        )
-    return stop_event.is_set()
+            code = proc.returncode
+            if code in (0, None) or code in (-15, -9):
+                log.debug("pulse_cli %s finished ok", os.path.basename(exe))
+                return stop_event.is_set()
+            log.warning(
+                "pulse_cli %s exited %s: %s",
+                os.path.basename(exe),
+                code,
+                err[:400].decode(errors="replace") if err else "",
+            )
+        return stop_event.is_set()
+    finally:
+        try:
+            os.unlink(wav_path)
+        except OSError:
+            pass
 
 
 def _ordered_sr_candidates(device: OutputDeviceSpec) -> list[float]:

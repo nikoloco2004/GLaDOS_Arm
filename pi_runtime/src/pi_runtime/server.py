@@ -319,7 +319,7 @@ async def _handler_session(ws: WebSocketServerProtocol) -> None:
                 vad_task = asyncio.create_task(vad_utterance_uplink())
                 log.info(
                     "Pi mic stream: always-on Silero VAD → utterances → user_audio_pcm "
-                    "(PI_MIC_MODE=push for %s-only)",
+                    "(hint: PI_MIC_MODE=push = no continuous VAD, only %s push-to-talk)",
                     os.environ.get("PI_MIC_COMMAND", "/mic"),
                 )
             else:

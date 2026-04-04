@@ -314,6 +314,11 @@ def run_vad_stream_thread(
                 "Silero talk-over-TTS (barge-in): %s — set PI_STREAM_VOICE_DURING_TTS=0 if speaker echo causes false stops",
                 "on" if duplex_voice_during_tts() else "off",
             )
+            if not duplex_voice_during_tts():
+                log.info(
+                    "Mic utterances to the brain are suppressed while TTS is playing (echo-safe). "
+                    "Speak after she finishes, or export PI_STREAM_VOICE_DURING_TTS=1 for talk-over (echo risk)."
+                )
             try:
                 while not stop_event.wait(0.2):
                     pass

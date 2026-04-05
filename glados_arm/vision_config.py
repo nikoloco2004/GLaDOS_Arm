@@ -8,8 +8,8 @@ from __future__ import annotations
 
 # Capture size — keep 4:3 to avoid the zoomed/cropped feel on Pi Cam v2.1.
 # Lower than 1280x960 for better FPS.
-CAMERA_WIDTH = 960
-CAMERA_HEIGHT = 720
+CAMERA_WIDTH = 1280
+CAMERA_HEIGHT = 960
 
 # Optional cap on frame rate (Picamera2 controls); None = library default
 CAMERA_FPS = 30
@@ -62,11 +62,11 @@ FACE_CENTER_ALPHA = 0.35
 # The controller nudges target_x_mm (range depth) toward DESIRED_FACE_WIDTH_PX.
 DIST_CONTROL_ENABLE = True
 DESIRED_FACE_WIDTH_PX = 160.0
-DIST_DEADBAND_PX = 1.0
+DIST_DEADBAND_PX = 2.0
 DIST_ERR_CLAMP_PX = 120.0
-DIST_MM_PER_PX = 0.75
-DIST_MAX_STEP_MM = 12.0
-DIST_ALPHA = 0.60
+DIST_MM_PER_PX = 0.55
+DIST_MAX_STEP_MM = 8.0
+DIST_ALPHA = 0.45
 DIST_ENABLE_AFTER_LOCK = True
 # Distance sign: +1 means smaller face -> increase x target; -1 flips behavior.
 DIST_SIGN_X = -1.0
@@ -80,9 +80,11 @@ TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 0.0
 TRACK_SHOULDER_ASSIST_MAX_DEG = 0
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = True
-DIST_SHOULDER_DEG_PER_PX = 0.10
-DIST_SHOULDER_MAX_DEG = 28
+DIST_SHOULDER_DEG_PER_PX = 0.04
+DIST_SHOULDER_MAX_DEG = 10
 DIST_SIGN_SHOULDER = 1.0
+DIST_SHOULDER_SMOOTH_ALPHA = 0.15
+DIST_SHOULDER_MAX_STEP_PER_FRAME_DEG = 1
 # Additional shoulder assist from measured z error (mm -> deg).
 ZERR_SHOULDER_ASSIST_ENABLE = False
 ZERR_SHOULDER_DEG_PER_MM = 0.10

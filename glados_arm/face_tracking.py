@@ -249,6 +249,8 @@ def run_tracking(
     wrist_trim_last = 0
     elbow_assist_state = 0.0
     elbow_assist_last = 0
+    shoulder_dist_state = 0.0
+    shoulder_dist_last = 0
     face_lock_frames = 0
     engage = 0.0
 
@@ -503,6 +505,27 @@ def run_tracking(
                         shoulder_dist_assist_deg = max(
                             -shoulder_dist_max, min(shoulder_dist_max, shoulder_dist_assist_deg)
                         )
+                        shoulder_dist_alpha = _clamp(
+                            float(getattr(vc, "DIST_SHOULDER_SMOOTH_ALPHA", 0.15)), 0.0, 1.0
+                        )
+                        shoulder_dist_state = (
+                            (1.0 - shoulder_dist_alpha) * shoulder_dist_state
+                            + shoulder_dist_alpha * float(shoulder_dist_assist_deg)
+                        )
+                        shoulder_dist_assist_deg = int(round(shoulder_dist_state))
+                        shoulder_dist_step_max = max(
+                            1, int(getattr(vc, "DIST_SHOULDER_MAX_STEP_PER_FRAME_DEG", 1))
+                        )
+                        shoulder_dist_assist_deg = int(
+                            round(
+                                _step_toward(
+                                    float(shoulder_dist_last),
+                                    float(shoulder_dist_assist_deg),
+                                    float(shoulder_dist_step_max),
+                                )
+                            )
+                        )
+                        shoulder_dist_last = shoulder_dist_assist_deg
 
                     target_x_mm = max(float(getattr(vc, "TARGET_X_MIN_MM", 100.0)), min(float(getattr(vc, "TARGET_X_MAX_MM", 230.0)), target_x_mm))
                     target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm))

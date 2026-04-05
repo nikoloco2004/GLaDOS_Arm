@@ -73,6 +73,8 @@ ARM_CMD="${ARM_CMD:-${ARM_CMD_DEFAULT}}"
 CHATBOT_CMD="${CHATBOT_CMD:-${CHATBOT_CMD_DEFAULT}}"
 
 USE_PTY_FOR_CHATBOT="${USE_PTY_FOR_CHATBOT:-1}"
+STOP_GRACE_S="${STOP_GRACE_S:-4}"
+ARM_NEUTRAL_ON_EXIT="${ARM_NEUTRAL_ON_EXIT:-1}"
 
 echo "Starting arm + chatbot..."
 echo "ARM_CMD: ${ARM_CMD}"
@@ -85,8 +87,45 @@ cleanup() {
   local code=$?
   echo
   echo "Stopping processes..."
-  [[ -n "${ARM_PID:-}" ]] && kill "${ARM_PID}" 2>/dev/null || true
-  [[ -n "${BOT_PID:-}" ]] && kill "${BOT_PID}" 2>/dev/null || true
+
+  graceful_stop_pid() {
+    local pid="$1"
+    local name="$2"
+    [[ -z "${pid}" ]] && return 0
+    if ! kill -0 "${pid}" 2>/dev/null; then
+      return 0
+    fi
+    # First try SIGINT so Python apps can run cleanup/finally handlers.
+    kill -INT "${pid}" 2>/dev/null || true
+    local deadline=$((SECONDS + STOP_GRACE_S))
+    while kill -0 "${pid}" 2>/dev/null; do
+      if (( SECONDS >= deadline )); then
+        break
+      fi
+      sleep 0.2
+    done
+    if kill -0 "${pid}" 2>/dev/null; then
+      echo "${name} still running after ${STOP_GRACE_S}s, sending SIGTERM..."
+      kill -TERM "${pid}" 2>/dev/null || true
+      sleep 0.5
+    fi
+    if kill -0 "${pid}" 2>/dev/null; then
+      echo "${name} still running, sending SIGKILL..."
+      kill -KILL "${pid}" 2>/dev/null || true
+    fi
+  }
+
+  graceful_stop_pid "${ARM_PID:-}" "Arm"
+  graceful_stop_pid "${BOT_PID:-}" "Chatbot"
+
+  # Fallback: if arm process didn't neutralize itself, send one direct command.
+  if [[ "${ARM_NEUTRAL_ON_EXIT}" == "1" ]] && [[ -n "${ARM_PORT:-}" ]] && [[ -e "${ARM_PORT}" ]]; then
+    {
+      stty -F "${ARM_PORT}" 115200 raw -echo 2>/dev/null || true
+      printf "NEUTRAL\n" > "${ARM_PORT}" 2>/dev/null || true
+    } || true
+  fi
+
   wait "${ARM_PID:-}" 2>/dev/null || true
   wait "${BOT_PID:-}" 2>/dev/null || true
   exit "${code}"
@@ -111,6 +150,21 @@ BOT_PID=$!
 
 echo "PIDs: arm=${ARM_PID}, chatbot=${BOT_PID}"
 echo "Press Ctrl+C to stop both."
+
+# Early health probe so startup failures are obvious.
+sleep 2
+if ! kill -0 "${ARM_PID}" 2>/dev/null; then
+  echo "Arm process failed during startup."
+  echo "--- tail ${ARM_LOG} ---"
+  tail -n 80 "${ARM_LOG}" || true
+  exit 1
+fi
+if ! kill -0 "${BOT_PID}" 2>/dev/null; then
+  echo "Chatbot process failed during startup."
+  echo "--- tail ${BOT_LOG} ---"
+  tail -n 80 "${BOT_LOG}" || true
+  exit 1
+fi
 
 # If either exits, stop the other and exit.
 wait -n "${ARM_PID}" "${BOT_PID}" || true

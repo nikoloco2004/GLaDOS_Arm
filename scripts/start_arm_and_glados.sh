@@ -26,6 +26,24 @@ if [[ ! -x "${BOT_PY}" ]]; then
   BOT_PY="python3"
 fi
 
+ensure_python_module() {
+  local py_bin="$1"
+  local module_name="$2"
+  local pip_pkg="$3"
+  if "${py_bin}" - <<PY >/dev/null 2>&1
+import importlib.util
+raise SystemExit(0 if importlib.util.find_spec("${module_name}") else 1)
+PY
+  then
+    return 0
+  fi
+  echo "Missing Python module '${module_name}' for ${py_bin}; installing '${pip_pkg}'..."
+  "${py_bin}" -m pip install "${pip_pkg}"
+}
+
+# Arm tracking needs pyserial (`import serial`).
+ensure_python_module "${ARM_PY}" serial pyserial
+
 ARM_PORT="${ARM_PORT:-/dev/ttyACM0}"
 ARM_CMD_DEFAULT="${ARM_PY} -m glados_arm.main track --preview --control-mode ik --color-mode bgr --port ${ARM_PORT}"
 CHATBOT_CMD_DEFAULT="${BOT_PY} -m glados.cli start --config ${ROOT}/configs/pi_potato.yaml --input-mode both"

@@ -44,6 +44,27 @@ PY
 # Arm tracking needs pyserial (`import serial`).
 ensure_python_module "${ARM_PY}" serial pyserial
 
+has_python_module() {
+  local py_bin="$1"
+  local module_name="$2"
+  "${py_bin}" - <<PY >/dev/null 2>&1
+import importlib.util
+raise SystemExit(0 if importlib.util.find_spec("${module_name}") else 1)
+PY
+}
+
+# Picamera2 is commonly installed via apt for system python, not venv.
+if ! has_python_module "${ARM_PY}" picamera2; then
+  if command -v python3 >/dev/null 2>&1 && has_python_module python3 picamera2; then
+    echo "Arm venv missing picamera2; falling back arm runtime to system python3."
+    ARM_PY="python3"
+  else
+    echo "Missing picamera2 for arm runtime."
+    echo "Install on Pi: sudo apt install -y python3-picamera2"
+    exit 1
+  fi
+fi
+
 ARM_PORT="${ARM_PORT:-/dev/ttyACM0}"
 ARM_CMD_DEFAULT="${ARM_PY} -m glados_arm.main track --preview --control-mode ik --color-mode bgr --port ${ARM_PORT}"
 CHATBOT_CMD_DEFAULT="${BOT_PY} -m glados.cli start --config ${ROOT}/configs/pi_potato.yaml --input-mode both"

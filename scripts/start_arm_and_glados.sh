@@ -3,10 +3,10 @@ set -euo pipefail
 
 # Start both:
 #   1) arm face-tracking loop
-#   2) local GLaDOS chatbot (personality_core)
+#   2) Pi brain bridge (pi_runtime websocket server for laptop brain_runtime)
 #
 # Override commands without editing this file:
-#   ARM_CMD='...' CHATBOT_CMD='...' bash scripts/start_arm_and_glados.sh
+#   ARM_CMD='...' BRIDGE_CMD='...' bash scripts/start_arm_and_glados.sh
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOG_DIR="${ROOT}/logs"
@@ -21,9 +21,9 @@ if [[ ! -x "${ARM_PY}" ]]; then
   ARM_PY="python3"
 fi
 
-BOT_PY="${ROOT}/personality_core/.venv/bin/python"
-if [[ ! -x "${BOT_PY}" ]]; then
-  BOT_PY="python3"
+BRIDGE_PY="${ROOT}/.venv/bin/python"
+if [[ ! -x "${BRIDGE_PY}" ]]; then
+  BRIDGE_PY="python3"
 fi
 
 ensure_python_module() {
@@ -67,21 +67,23 @@ fi
 
 ARM_PORT="${ARM_PORT:-/dev/ttyACM0}"
 ARM_CMD_DEFAULT="${ARM_PY} -m glados_arm.main track --preview --control-mode ik --color-mode bgr --port ${ARM_PORT}"
-CHATBOT_CMD_DEFAULT="${BOT_PY} -m glados.cli start --config ${ROOT}/configs/pi_potato.yaml --input-mode both"
+PI_RUNTIME_HOST="${PI_RUNTIME_HOST:-0.0.0.0}"
+PI_RUNTIME_PORT="${PI_RUNTIME_PORT:-8765}"
+BRIDGE_CMD_DEFAULT="PI_RUNTIME_HOST=${PI_RUNTIME_HOST} PI_RUNTIME_PORT=${PI_RUNTIME_PORT} ${BRIDGE_PY} -m pi_runtime"
 
 ARM_CMD="${ARM_CMD:-${ARM_CMD_DEFAULT}}"
-CHATBOT_CMD="${CHATBOT_CMD:-${CHATBOT_CMD_DEFAULT}}"
+BRIDGE_CMD="${BRIDGE_CMD:-${BRIDGE_CMD_DEFAULT}}"
 
-USE_PTY_FOR_CHATBOT="${USE_PTY_FOR_CHATBOT:-1}"
+USE_PTY_FOR_CHATBOT="${USE_PTY_FOR_CHATBOT:-0}"
 STOP_GRACE_S="${STOP_GRACE_S:-4}"
 ARM_NEUTRAL_ON_EXIT="${ARM_NEUTRAL_ON_EXIT:-1}"
 
-echo "Starting arm + chatbot..."
+echo "Starting arm + pi_runtime..."
 echo "ARM_CMD: ${ARM_CMD}"
-echo "CHATBOT_CMD: ${CHATBOT_CMD}"
+echo "BRIDGE_CMD: ${BRIDGE_CMD}"
 echo "Logs:"
 echo "  Arm: ${ARM_LOG}"
-echo "  Bot: ${BOT_LOG}"
+echo "  Bridge: ${BOT_LOG}"
 
 cleanup() {
   local code=$?
@@ -116,7 +118,7 @@ cleanup() {
   }
 
   graceful_stop_pid "${ARM_PID:-}" "Arm"
-  graceful_stop_pid "${BOT_PID:-}" "Chatbot"
+  graceful_stop_pid "${BOT_PID:-}" "Bridge"
 
   # Fallback: if arm process didn't neutralize itself, send one direct command.
   if [[ "${ARM_NEUTRAL_ON_EXIT}" == "1" ]] && [[ -n "${ARM_PORT:-}" ]] && [[ -e "${ARM_PORT}" ]]; then
@@ -139,12 +141,11 @@ ARM_PID=$!
 # Small stagger so camera/serial init settles before chatbot starts.
 sleep 1
 
-# Run chatbot from personality_core. Use a PTY when available because some CLI
-# input modes exit immediately without a TTY.
+# Run bridge from repo root. PTY is optional but usually unnecessary for pi_runtime.
 if [[ "${USE_PTY_FOR_CHATBOT}" == "1" ]] && command -v script >/dev/null 2>&1; then
-  (cd "${ROOT}/personality_core" && script -q -e -c "${CHATBOT_CMD}" /dev/null) >"${BOT_LOG}" 2>&1 &
+  (cd "${ROOT}" && script -q -e -c "${BRIDGE_CMD}" /dev/null) >"${BOT_LOG}" 2>&1 &
 else
-  (cd "${ROOT}/personality_core" && bash -lc "${CHATBOT_CMD}") >"${BOT_LOG}" 2>&1 &
+  (cd "${ROOT}" && bash -lc "${BRIDGE_CMD}") >"${BOT_LOG}" 2>&1 &
 fi
 BOT_PID=$!
 
@@ -160,7 +161,7 @@ if ! kill -0 "${ARM_PID}" 2>/dev/null; then
   exit 1
 fi
 if ! kill -0 "${BOT_PID}" 2>/dev/null; then
-  echo "Chatbot process failed during startup."
+  echo "Bridge process failed during startup."
   echo "--- tail ${BOT_LOG} ---"
   tail -n 80 "${BOT_LOG}" || true
   exit 1
@@ -184,7 +185,7 @@ fi
 if [[ "${BOT_ALIVE}" -eq 0 ]]; then
   wait "${BOT_PID}" || BOT_EXIT=$?
   BOT_EXIT="${BOT_EXIT:-0}"
-  echo "Chatbot process exited (code=${BOT_EXIT})."
+  echo "Bridge process exited (code=${BOT_EXIT})."
   echo "--- tail ${BOT_LOG} ---"
   tail -n 60 "${BOT_LOG}" || true
 fi

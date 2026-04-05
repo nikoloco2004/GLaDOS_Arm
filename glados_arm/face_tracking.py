@@ -264,6 +264,9 @@ def run_tracking(
     shoulder_dist_last = 0
     face_lock_frames = 0
     engage = 0.0
+    base_pid_i = 0.0
+    base_pid_prev_e = 0.0
+    base_pid_d = 0.0
 
     try:
         while True:
@@ -444,13 +447,36 @@ def run_tracking(
 
                 if ctl == "ik":
                     shoulder_dist_assist_deg = 0
-                    base_step = (
-                        vc.SIGN_ERROR_X_BASE * corr_x_ctrl * float(getattr(vc, "TRACK_BASE_RAD_PER_NORM", 0.04))
-                    )
+                    max_base_step = float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08))
+                    x_ctrl_mode = str(getattr(vc, "BASE_X_CTRL_MODE", "p")).strip().lower()
+                    if x_ctrl_mode == "pid":
+                        # PID on horizontal image error -> base yaw step (rad/frame).
+                        e = float(vc.SIGN_ERROR_X_BASE) * corr_x_ctrl
+                        kp = float(getattr(vc, "BASE_PID_KP", 0.07))
+                        ki = float(getattr(vc, "BASE_PID_KI", 0.0))
+                        kd = float(getattr(vc, "BASE_PID_KD", 0.02))
+                        i_clamp = max(0.0, float(getattr(vc, "BASE_PID_I_CLAMP", 2.0)))
+                        d_alpha = _clamp(float(getattr(vc, "BASE_PID_D_ALPHA", 0.35)), 0.0, 1.0)
+
+                        base_pid_i += e
+                        base_pid_i = _clamp(base_pid_i, -i_clamp, i_clamp)
+                        d_raw = e - base_pid_prev_e
+                        base_pid_d = (1.0 - d_alpha) * base_pid_d + d_alpha * d_raw
+                        base_unclamped = kp * e + ki * base_pid_i + kd * base_pid_d
+                        base_step = _clamp(base_unclamped, -max_base_step, max_base_step)
+                        # Basic anti-windup: undo this frame's integral if output is saturating further.
+                        if abs(base_unclamped - base_step) > 1e-9 and abs(e) > 1e-9:
+                            if (base_unclamped > 0.0 and e > 0.0) or (base_unclamped < 0.0 and e < 0.0):
+                                base_pid_i -= e
+                        base_pid_prev_e = e
+                    else:
+                        base_step = (
+                            vc.SIGN_ERROR_X_BASE * corr_x_ctrl * float(getattr(vc, "TRACK_BASE_RAD_PER_NORM", 0.04))
+                        )
                     base_step = _clamp(
                         base_step,
-                        -float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08)),
-                        float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08)),
+                        -max_base_step,
+                        max_base_step,
                     )
                     base_yaw_rad += base_step
                     base_yaw_rad = _clamp(base_yaw_rad, -base_yaw_lim, base_yaw_lim)
@@ -757,6 +783,10 @@ def run_tracking(
                     0.0,
                     max(1e-3, float(getattr(vc, "ENGAGE_DOWN_PER_FRAME", 0.35))),
                 )
+                if bool(getattr(vc, "BASE_PID_RESET_ON_LOSS", True)):
+                    base_pid_i = 0.0
+                    base_pid_prev_e = 0.0
+                    base_pid_d = 0.0
                 if ctl == "ik" and bool(getattr(vc, "NO_FACE_VERTICAL_RETURN_ENABLE", True)):
                     z_relax = max(0.0, float(getattr(vc, "NO_FACE_Z_RETURN_MM_PER_FRAME", 2.5)))
                     x_relax = max(0.0, float(getattr(vc, "NO_FACE_X_RETURN_MM_PER_FRAME", 3.0)))

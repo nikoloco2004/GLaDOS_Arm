@@ -153,7 +153,7 @@ def run_tracking(
 
     picam2 = Picamera2()
     # Use RGB888 for consistent detector input; color_mode controls preview conversion path.
-    cfg = picam2.create_preview_configuration(
+    cfg = picam2.create_video_configuration(
         main={"size": (width, height), "format": "RGB888"},
         controls={"FrameRate": float(getattr(vc, "CAMERA_FPS", 30))},
     )
@@ -161,6 +161,7 @@ def run_tracking(
     picam2.start()
 
     # Request full sensor crop when available (reduces "zoomed-in" look).
+    max_crop_tuple: tuple[int, int, int, int] | None = None
     try:
         max_crop = picam2.camera_properties.get("ScalerCropMaximum")
         if max_crop is not None:
@@ -177,6 +178,7 @@ def run_tracking(
     except Exception as e:
         print(f"ScalerCrop full-FOV request failed: {e}", flush=True)
 
+    crop_reapply_until = time.time() + 2.0
     time.sleep(0.2)
 
     arm = ArmSerial(port=port) if use_serial else None
@@ -277,6 +279,11 @@ def run_tracking(
             raw = picam2.capture_array("main")
             if raw is None or raw.size == 0:
                 continue
+            if max_crop_tuple is not None and time.time() < crop_reapply_until:
+                try:
+                    picam2.set_controls({"ScalerCrop": max_crop_tuple})
+                except Exception:
+                    pass
             # Convert to BGR for OpenCV only when raw is RGB.
             if mode == "rgb":
                 frame_bgr = cv2.cvtColor(raw, cv2.COLOR_RGB2BGR)

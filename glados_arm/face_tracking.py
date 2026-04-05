@@ -164,7 +164,7 @@ def run_tracking(
     max_crop_tuple: tuple[int, int, int, int] | None = None
     try:
         max_crop = picam2.camera_properties.get("ScalerCropMaximum")
-        if max_crop is not None:
+        if max_crop is not None and bool(getattr(vc, "FORCE_MAX_SCALERCROP", True)):
             max_crop_tuple = tuple(int(v) for v in max_crop)
             # Apply a few times; libcamera controls can take a couple frames to settle.
             for _ in range(6):
@@ -178,7 +178,8 @@ def run_tracking(
     except Exception as e:
         print(f"ScalerCrop full-FOV request failed: {e}", flush=True)
 
-    crop_reapply_until = time.time() + 2.0
+    crop_reapply_until = time.time() + float(getattr(vc, "SCALERCROP_REAPPLY_SECONDS", 8.0))
+    crop_reapply_every_n = max(1, int(getattr(vc, "SCALERCROP_REAPPLY_EVERY_N_FRAMES", 12)))
     time.sleep(0.2)
 
     arm = ArmSerial(port=port) if use_serial else None
@@ -282,7 +283,11 @@ def run_tracking(
             raw = picam2.capture_array("main")
             if raw is None or raw.size == 0:
                 continue
-            if max_crop_tuple is not None and time.time() < crop_reapply_until:
+            if (
+                max_crop_tuple is not None
+                and time.time() < crop_reapply_until
+                and (frame_idx % crop_reapply_every_n == 0)
+            ):
                 try:
                     picam2.set_controls({"ScalerCrop": max_crop_tuple})
                 except Exception:

@@ -16,16 +16,16 @@ CAMERA_FPS = 30
 
 # Try to force a full-sensor-style binned mode before scaling to main size.
 # If unsupported on your stack, code falls back automatically.
-SENSOR_OUTPUT_SIZE = (2304, 1296)
+SENSOR_OUTPUT_SIZE = (4608, 2592)
 # Additional sensor mode fallback chain (full-FOV-first) for stacks that reject one mode.
 SENSOR_OUTPUT_SIZE_FALLBACKS = (
-    (2304, 1296),
     (4608, 2592),
+    (2304, 1296),
 )
 
 # Keep full-sensor crop enforced to avoid creeping zoom in some libcamera pipelines.
 FORCE_MAX_SCALERCROP = True
-SCALERCROP_REAPPLY_SECONDS = 20.0
+SCALERCROP_REAPPLY_SECONDS = 999999.0
 SCALERCROP_REAPPLY_EVERY_N_FRAMES = 1
 
 # Downscale width for Haar detection only (speed); full-res frame used for preview & overlay.

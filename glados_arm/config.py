@@ -53,7 +53,7 @@ SHOULDER_RAD_TO_SERVO_DEG = 180.0 / math.pi  # 1 model rad ≈ this many servo d
 
 # Elbow (new hardware mapping): "up" model motion should increase servo command from neutral.
 ELBOW_INVERT = False  # if False: servo = NEUTRAL + sign * f(q)
-ELBOW_SIGN = -1.0
+ELBOW_SIGN = 1.0
 ELBOW_RAD_TO_SERVO_DEG = 180.0 / math.pi
 
 # Wrist: trim / secondary DOF (not in primary IK v1).
@@ -65,7 +65,7 @@ WRIST_RAD_TO_SERVO_DEG = 180.0 / math.pi
 # absolute link angles (shoulder link from +x, elbow as interior bend).
 # **Calibrate** so FK matches a physical measurement at neutral.
 THETA1_REF_NEUTRAL_RAD = 0.25  # final micro-pass: test if this further reduces shoulder-min clipping
-THETA2_REF_NEUTRAL_RAD = 0.0  # elbow bend: angle from upper arm to lower arm
+THETA2_REF_NEUTRAL_RAD = 0.35  # elbow neutral offset retune for new servo installation
 
 # Optional: include wrist as constant extra rotation at tip for FK (rad); v1 default 0.
 WRIST_BEND_IN_FK_RAD = 0.0

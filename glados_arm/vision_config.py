@@ -57,8 +57,7 @@ BASE_PID_NEAR_ERROR = 0.10
 BASE_PID_NEAR_STEP_SCALE = 0.55
 BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
-# TEMP X-only tuning mode: disable vertical target updates.
-TRACK_Z_MM_PER_NORM = 0.0
+TRACK_Z_MM_PER_NORM = 6.0
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
 # Cross-axis coupling: x correction can influence vertical z correction (camera/geometry coupling).
@@ -77,7 +76,7 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.052
-MAX_Z_STEP_MM = 0.0
+MAX_Z_STEP_MM = 3.0
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.25
 
@@ -101,8 +100,8 @@ DIST_Z_MM_PER_PX = 0.15
 DIST_Z_MAX_STEP_MM = 1.0
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
-TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 0.0
-TRACK_SHOULDER_ASSIST_MAX_DEG = 0
+TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 4.0
+TRACK_SHOULDER_ASSIST_MAX_DEG = 10
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
@@ -116,7 +115,7 @@ ZERR_SHOULDER_DEG_PER_MM = 0.10
 ZERR_SHOULDER_MAX_DEG = 8
 ZERR_SIGN_SHOULDER = 1.0
 # Elbow assist in IK mode for vertical compensation.
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 0.0
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 6.0
 TRACK_ELBOW_ASSIST_MAX_DEG = 16
 ELBOW_SMOOTH_ALPHA = 0.08
 ELBOW_MAX_STEP_PER_FRAME_DEG = 1
@@ -129,8 +128,8 @@ ENGAGE_DOWN_PER_FRAME = 0.35
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
-TRACK_WRIST_DEG_PER_NORM = 0.0
-TRACK_WRIST_MIN_STEP_DEG = 0
+TRACK_WRIST_DEG_PER_NORM = 35.0
+TRACK_WRIST_MIN_STEP_DEG = 1
 TRACK_WRIST_MAX_TRIM_DEG = 95
 SIGN_ERROR_Y_WRIST = 1.0
 WRIST_SMOOTH_ALPHA = 0.25

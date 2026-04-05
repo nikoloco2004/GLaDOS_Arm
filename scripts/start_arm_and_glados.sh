@@ -33,6 +33,8 @@ CHATBOT_CMD_DEFAULT="${BOT_PY} -m glados.cli start --config ${ROOT}/configs/pi_p
 ARM_CMD="${ARM_CMD:-${ARM_CMD_DEFAULT}}"
 CHATBOT_CMD="${CHATBOT_CMD:-${CHATBOT_CMD_DEFAULT}}"
 
+USE_PTY_FOR_CHATBOT="${USE_PTY_FOR_CHATBOT:-1}"
+
 echo "Starting arm + chatbot..."
 echo "ARM_CMD: ${ARM_CMD}"
 echo "CHATBOT_CMD: ${CHATBOT_CMD}"
@@ -52,13 +54,20 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-bash -lc "${ARM_CMD}" >"${ARM_LOG}" 2>&1 &
+# Run arm from repo root so relative imports/config stay stable.
+(cd "${ROOT}" && bash -lc "${ARM_CMD}") >"${ARM_LOG}" 2>&1 &
 ARM_PID=$!
 
 # Small stagger so camera/serial init settles before chatbot starts.
 sleep 1
 
-bash -lc "${CHATBOT_CMD}" >"${BOT_LOG}" 2>&1 &
+# Run chatbot from personality_core. Use a PTY when available because some CLI
+# input modes exit immediately without a TTY.
+if [[ "${USE_PTY_FOR_CHATBOT}" == "1" ]] && command -v script >/dev/null 2>&1; then
+  (cd "${ROOT}/personality_core" && script -q -e -c "${CHATBOT_CMD}" /dev/null) >"${BOT_LOG}" 2>&1 &
+else
+  (cd "${ROOT}/personality_core" && bash -lc "${CHATBOT_CMD}") >"${BOT_LOG}" 2>&1 &
+fi
 BOT_PID=$!
 
 echo "PIDs: arm=${ARM_PID}, chatbot=${BOT_PID}"
@@ -66,5 +75,26 @@ echo "Press Ctrl+C to stop both."
 
 # If either exits, stop the other and exit.
 wait -n "${ARM_PID}" "${BOT_PID}" || true
+ARM_ALIVE=0
+BOT_ALIVE=0
+if kill -0 "${ARM_PID}" 2>/dev/null; then ARM_ALIVE=1; fi
+if kill -0 "${BOT_PID}" 2>/dev/null; then BOT_ALIVE=1; fi
+
+if [[ "${ARM_ALIVE}" -eq 0 ]]; then
+  wait "${ARM_PID}" || ARM_EXIT=$?
+  ARM_EXIT="${ARM_EXIT:-0}"
+  echo "Arm process exited (code=${ARM_EXIT})."
+  echo "--- tail ${ARM_LOG} ---"
+  tail -n 60 "${ARM_LOG}" || true
+fi
+
+if [[ "${BOT_ALIVE}" -eq 0 ]]; then
+  wait "${BOT_PID}" || BOT_EXIT=$?
+  BOT_EXIT="${BOT_EXIT:-0}"
+  echo "Chatbot process exited (code=${BOT_EXIT})."
+  echo "--- tail ${BOT_LOG} ---"
+  tail -n 60 "${BOT_LOG}" || true
+fi
+
 echo "One process exited. Shutting down the other."
 

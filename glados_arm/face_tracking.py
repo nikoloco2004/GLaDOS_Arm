@@ -285,6 +285,9 @@ def run_tracking(
     base_pid_prev_e = 0.0
     base_pid_d = 0.0
     base_zero_cross_hold = 0
+    y_pid_i = 0.0
+    y_pid_prev_e = 0.0
+    y_pid_d = 0.0
 
     try:
         while True:
@@ -534,9 +537,32 @@ def run_tracking(
                         getattr(vc, "TRACK_Z_FROM_X_MIX", 0.0)
                     ) * corr_x_ctrl
                     y_for_z = _clamp(y_for_z, -1.0, 1.0)
-                    z_step = (
-                        vc.SIGN_ERROR_Y_SHOULDER * y_for_z * float(getattr(vc, "TRACK_Z_MM_PER_NORM", 10.0))
-                    )
+                    y_ctrl_mode = str(getattr(vc, "Y_Z_CTRL_MODE", "p")).strip().lower()
+                    if y_ctrl_mode == "pid":
+                        ye = float(vc.SIGN_ERROR_Y_SHOULDER) * y_for_z
+                        ykp = float(getattr(vc, "Y_PID_KP", 1.8))
+                        yki = float(getattr(vc, "Y_PID_KI", 0.03))
+                        ykd = float(getattr(vc, "Y_PID_KD", 0.8))
+                        yi_clamp = max(0.0, float(getattr(vc, "Y_PID_I_CLAMP", 2.5)))
+                        yd_alpha = _clamp(float(getattr(vc, "Y_PID_D_ALPHA", 0.35)), 0.0, 1.0)
+
+                        y_pid_i += ye
+                        y_pid_i = _clamp(y_pid_i, -yi_clamp, yi_clamp)
+                        y_d_raw = ye - y_pid_prev_e
+                        y_pid_d = (1.0 - yd_alpha) * y_pid_d + yd_alpha * y_d_raw
+                        z_unclamped = ykp * ye + yki * y_pid_i + ykd * y_pid_d
+                        z_step = z_unclamped
+                        # anti-windup on saturation direction
+                        z_cap = float(getattr(vc, "MAX_Z_STEP_MM", 10.0))
+                        z_tmp = _clamp(z_unclamped, -z_cap, z_cap)
+                        if abs(z_unclamped - z_tmp) > 1e-9 and abs(ye) > 1e-9:
+                            if (z_unclamped > 0.0 and ye > 0.0) or (z_unclamped < 0.0 and ye < 0.0):
+                                y_pid_i -= ye
+                        y_pid_prev_e = ye
+                    else:
+                        z_step = (
+                            vc.SIGN_ERROR_Y_SHOULDER * y_for_z * float(getattr(vc, "TRACK_Z_MM_PER_NORM", 10.0))
+                        )
                     z_step = _clamp(
                         z_step,
                         -float(getattr(vc, "MAX_Z_STEP_MM", 10.0)),
@@ -837,6 +863,10 @@ def run_tracking(
                     base_pid_prev_e = 0.0
                     base_pid_d = 0.0
                     base_zero_cross_hold = 0
+                if bool(getattr(vc, "Y_PID_RESET_ON_LOSS", True)):
+                    y_pid_i = 0.0
+                    y_pid_prev_e = 0.0
+                    y_pid_d = 0.0
                 if ctl == "ik" and bool(getattr(vc, "NO_FACE_VERTICAL_RETURN_ENABLE", True)):
                     z_relax = max(0.0, float(getattr(vc, "NO_FACE_Z_RETURN_MM_PER_FRAME", 2.5)))
                     x_relax = max(0.0, float(getattr(vc, "NO_FACE_X_RETURN_MM_PER_FRAME", 3.0)))

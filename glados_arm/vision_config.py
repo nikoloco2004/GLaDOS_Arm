@@ -58,6 +58,15 @@ BASE_PID_NEAR_STEP_SCALE = 0.55
 BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
 TRACK_Z_MM_PER_NORM = 3.5
+# Vertical Y->Z controller mode: "p" (legacy proportional) or "pid".
+Y_Z_CTRL_MODE = "pid"
+# PID tuning for vertical correction (output in mm/frame, then clamped by MAX_Z_STEP_MM).
+Y_PID_KP = 1.8
+Y_PID_KI = 0.03
+Y_PID_KD = 0.8
+Y_PID_I_CLAMP = 2.5
+Y_PID_D_ALPHA = 0.35
+Y_PID_RESET_ON_LOSS = True
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
 # Cross-axis coupling: x correction can influence vertical z correction (camera/geometry coupling).

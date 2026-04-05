@@ -249,6 +249,7 @@ def run_tracking(
     wrist_trim_last = 0
     elbow_assist_state = 0.0
     elbow_assist_last = 0
+    elbow_cmd_last = int(config.NEUTRAL_ELBOW)
     shoulder_dist_state = 0.0
     shoulder_dist_last = 0
     face_lock_frames = 0
@@ -613,6 +614,19 @@ def run_tracking(
                             shoulder=cmd.shoulder + shoulder_zerr_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
+                    # Final elbow command rate-limit to suppress IK-induced snapping.
+                    elbow_cmd_step = max(1, int(getattr(vc, "ELBOW_CMD_MAX_STEP_PER_FRAME_DEG", 2)))
+                    elbow_cmd = int(
+                        round(_step_toward(float(elbow_cmd_last), float(cmd.elbow), float(elbow_cmd_step)))
+                    )
+                    cmd = ServoCommand(
+                        wrist=cmd.wrist,
+                        elbow=elbow_cmd,
+                        base=cmd.base,
+                        shoulder=cmd.shoulder,
+                    )
+                    cmd, _ = clamp_servo(cmd)
+                    elbow_cmd_last = cmd.elbow
                     last_valid_cmd = cmd
                 else:
                     d_base = int(
@@ -632,6 +646,7 @@ def run_tracking(
                     )
                     cl, _notes = clamp_servo(cmd)
                     cmd = cl
+                    elbow_cmd_last = cmd.elbow
 
                 if use_serial:
                     controller.send_servo(cmd)
@@ -749,6 +764,7 @@ def run_tracking(
                         shoulder=int(round(_step_toward(float(last_valid_cmd.shoulder), float(config.NEUTRAL_SHOULDER), float(getattr(vc, "NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME", 3.0))))),
                     )
                     cmd, _ = clamp_servo(cmd)
+                    elbow_cmd_last = cmd.elbow
                     last_valid_cmd = cmd
                     est_model = servo_to_model(cmd)
                     est_fk = kinematics.forward_kinematics(est_model.q_shoulder_rad, est_model.q_elbow_rad)

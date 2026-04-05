@@ -53,7 +53,7 @@ SHOULDER_RAD_TO_SERVO_DEG = 180.0 / math.pi  # 1 model rad ≈ this many servo d
 
 # Elbow (new hardware mapping): "up" model motion should increase servo command from neutral.
 ELBOW_INVERT = False  # if False: servo = NEUTRAL + sign * f(q)
-ELBOW_SIGN = 1.0
+ELBOW_SIGN = -1.0
 ELBOW_RAD_TO_SERVO_DEG = 180.0 / math.pi
 
 # Wrist: trim / secondary DOF (not in primary IK v1).

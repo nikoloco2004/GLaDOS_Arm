@@ -7,9 +7,9 @@ Install on Pi: ``sudo apt install -y python3-picamera2 python3-opencv`` (or use 
 from __future__ import annotations
 
 # Capture size — keep 4:3 to avoid the zoomed/cropped feel on Pi Cam v2.1.
-# Lower than 1280x960 for better FPS.
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 960
+# Use a larger 4:3 mode to maximize field of view on Pi Cam v2.1.
+CAMERA_WIDTH = 1640
+CAMERA_HEIGHT = 1232
 
 # Optional cap on frame rate (Picamera2 controls); None = library default
 CAMERA_FPS = 30
@@ -64,16 +64,16 @@ DIST_CONTROL_ENABLE = True
 DESIRED_FACE_WIDTH_PX = 160.0
 DIST_DEADBAND_PX = 2.0
 DIST_ERR_CLAMP_PX = 120.0
-DIST_MM_PER_PX = 0.55
-DIST_MAX_STEP_MM = 8.0
+DIST_MM_PER_PX = 0.45
+DIST_MAX_STEP_MM = 6.0
 DIST_ALPHA = 0.45
 DIST_ENABLE_AFTER_LOCK = True
 # Distance sign: +1 means smaller face -> increase x target; -1 flips behavior.
 DIST_SIGN_X = -1.0
 # Optional distance->z coupling so shoulder participates from range changes.
 DIST_SIGN_Z = 1.0
-DIST_Z_MM_PER_PX = 0.20
-DIST_Z_MAX_STEP_MM = 1.5
+DIST_Z_MM_PER_PX = 0.15
+DIST_Z_MAX_STEP_MM = 1.0
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
 TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 0.0
@@ -131,7 +131,7 @@ RAMP_START_ERROR = 0.10      # normalized error before ramp starts to build
 RAMP_UP_PER_FRAME = 0.10     # how quickly gain ramps up while off-center
 RAMP_DOWN_PER_FRAME = 0.20   # how quickly gain falls back near center
 RAMP_MIN = 1.0               # initial correction multiplier
-RAMP_MAX = 2.2               # max boosted multiplier
+RAMP_MAX = 1.6               # max boosted multiplier
 
 # Degrees added per frame per unit normalized error (after deadband). Tune on hardware.
 # Horizontal: positive error_x = face to the right of frame center → increase base if SIGN_BASE matches.

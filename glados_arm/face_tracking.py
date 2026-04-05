@@ -164,10 +164,18 @@ def run_tracking(
     try:
         max_crop = picam2.camera_properties.get("ScalerCropMaximum")
         if max_crop is not None:
-            picam2.set_controls({"ScalerCrop": max_crop})
-            print(f"ScalerCrop set to full sensor: {max_crop}", flush=True)
-    except Exception:
-        pass
+            max_crop_tuple = tuple(int(v) for v in max_crop)
+            # Apply a few times; libcamera controls can take a couple frames to settle.
+            for _ in range(6):
+                picam2.set_controls({"ScalerCrop": max_crop_tuple})
+                time.sleep(0.03)
+            md = picam2.capture_metadata()
+            cur_crop = md.get("ScalerCrop") if isinstance(md, dict) else None
+            print(f"ScalerCrop max={max_crop_tuple} current={cur_crop}", flush=True)
+        else:
+            print("ScalerCropMaximum unavailable on this stack.", flush=True)
+    except Exception as e:
+        print(f"ScalerCrop full-FOV request failed: {e}", flush=True)
 
     time.sleep(0.2)
 

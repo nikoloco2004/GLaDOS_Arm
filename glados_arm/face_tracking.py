@@ -153,10 +153,26 @@ def run_tracking(
 
     picam2 = Picamera2()
     # Use RGB888 for consistent detector input; color_mode controls preview conversion path.
-    cfg = picam2.create_video_configuration(
-        main={"size": (width, height), "format": "RGB888"},
-        controls={"FrameRate": float(getattr(vc, "CAMERA_FPS", 30))},
-    )
+    cfg_kwargs: dict[str, object] = {
+        "main": {"size": (width, height), "format": "RGB888"},
+        "controls": {"FrameRate": float(getattr(vc, "CAMERA_FPS", 30))},
+    }
+    sensor_output = getattr(vc, "SENSOR_OUTPUT_SIZE", None)
+    if isinstance(sensor_output, (tuple, list)) and len(sensor_output) == 2:
+        try:
+            so = (int(sensor_output[0]), int(sensor_output[1]))
+            cfg_kwargs["sensor"] = {"output_size": so}
+        except Exception:
+            pass
+    try:
+        cfg = picam2.create_video_configuration(**cfg_kwargs)
+    except Exception as e:
+        # Fallback for stacks that reject explicit sensor mode hints.
+        print(f"Video cfg with sensor hint failed ({e}); falling back.", flush=True)
+        cfg = picam2.create_video_configuration(
+            main={"size": (width, height), "format": "RGB888"},
+            controls={"FrameRate": float(getattr(vc, "CAMERA_FPS", 30))},
+        )
     picam2.configure(cfg)
     picam2.start()
 

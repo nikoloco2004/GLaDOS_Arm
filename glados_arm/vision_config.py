@@ -12,7 +12,11 @@ CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
 
 # Optional cap on frame rate (Picamera2 controls); None = library default
-CAMERA_FPS = 45
+CAMERA_FPS = 30
+
+# Try to force a full-sensor mode (Pi Cam v3: 4608x2592) before scaling to main size.
+# If unsupported on your stack, code falls back automatically.
+SENSOR_OUTPUT_SIZE = (4608, 2592)
 
 # Keep full-sensor crop enforced to avoid creeping zoom in some libcamera pipelines.
 FORCE_MAX_SCALERCROP = True

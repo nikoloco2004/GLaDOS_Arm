@@ -30,7 +30,7 @@ CONTROL_MODE = "ik"
 
 # IK live-target tuning (used when CONTROL_MODE == "ik")
 # Image X correction (normalized) -> base yaw delta (rad/frame)
-TRACK_BASE_RAD_PER_NORM = 0.10
+TRACK_BASE_RAD_PER_NORM = 0.11
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
 # TEMP X-only tuning mode: disable vertical target updates.
 TRACK_Z_MM_PER_NORM = 0.0
@@ -51,10 +51,10 @@ TARGET_Z_MIN_MM = 0.0
 TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
-MAX_BASE_YAW_STEP_RAD = 0.030
+MAX_BASE_YAW_STEP_RAD = 0.032
 MAX_Z_STEP_MM = 0.0
 MAX_X_STEP_MM = 3.0
-FACE_CENTER_ALPHA = 0.18
+FACE_CENTER_ALPHA = 0.20
 
 # Distance control from face box size (applies in IK mode).
 # We estimate relative distance from detected face width in pixels:
@@ -121,7 +121,7 @@ NO_FACE_ELBOW_RETURN_DEG_PER_FRAME = 4.0
 NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME = 3.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
-TRACK_DEADBAND = 0.055
+TRACK_DEADBAND = 0.05
 
 # Adaptive ramping:
 # Start with gentle correction, then ramp up if target stays outside center for multiple frames.

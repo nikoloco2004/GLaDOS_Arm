@@ -479,6 +479,10 @@ def run_tracking(
                         i_clamp = max(0.0, float(getattr(vc, "BASE_PID_I_CLAMP", 2.0)))
                         d_alpha = _clamp(float(getattr(vc, "BASE_PID_D_ALPHA", 0.35)), 0.0, 1.0)
 
+                        prev_e = base_pid_prev_e
+                        # Reset integral when crossing center to avoid carryover-driven overshoot.
+                        if prev_e * e < 0.0:
+                            base_pid_i = 0.0
                         base_pid_i += e
                         base_pid_i = _clamp(base_pid_i, -i_clamp, i_clamp)
                         d_raw = e - base_pid_prev_e
@@ -489,6 +493,14 @@ def run_tracking(
                         if abs(base_unclamped - base_step) > 1e-9 and abs(e) > 1e-9:
                             if (base_unclamped > 0.0 and e > 0.0) or (base_unclamped < 0.0 and e < 0.0):
                                 base_pid_i -= e
+                        # Additional brake right at error sign-crossing to prevent ring.
+                        if prev_e * e < 0.0:
+                            cross_brake = _clamp(
+                                float(getattr(vc, "BASE_PID_ZERO_CROSS_BRAKE", 0.45)),
+                                0.0,
+                                1.0,
+                            )
+                            base_step *= cross_brake
                         base_pid_prev_e = e
                     else:
                         base_step = (

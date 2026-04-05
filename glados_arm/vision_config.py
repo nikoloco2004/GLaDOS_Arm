@@ -44,12 +44,14 @@ TRACK_BASE_RAD_PER_NORM = 0.09
 BASE_X_CTRL_MODE = "pid"
 # PID tuning for base X (output is radians per frame, then clamped by MAX_BASE_YAW_STEP_RAD).
 BASE_PID_KP = 0.085
-BASE_PID_KI = 0.0007
+BASE_PID_KI = 0.0002
 BASE_PID_KD = 0.032
 # Integral clamp (in normalized-error frame-sum units) and derivative smoothing.
 BASE_PID_I_CLAMP = 2.0
 BASE_PID_D_ALPHA = 0.45
 BASE_PID_RESET_ON_LOSS = True
+# Extra damping when error crosses zero (helps remove lingering overshoot).
+BASE_PID_ZERO_CROSS_BRAKE = 0.45
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
 # TEMP X-only tuning mode: disable vertical target updates.
 TRACK_Z_MM_PER_NORM = 0.0

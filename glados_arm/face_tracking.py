@@ -281,6 +281,7 @@ def run_tracking(
     shoulder_dist_last = 0
     face_lock_frames = 0
     engage = 0.0
+    last_face_seen_t = time.time()
     base_pid_i = 0.0
     base_pid_prev_e = 0.0
     base_pid_d = 0.0
@@ -361,6 +362,7 @@ def run_tracking(
             z_err_mm = 0.0
 
             if len(faces) > 0:
+                last_face_seen_t = now_t
                 face_lock_frames += 1
                 areas = [fw * fh for (_x, _y, fw, fh) in faces]
                 i = int(np.argmax(areas))
@@ -867,7 +869,14 @@ def run_tracking(
                     y_pid_i = 0.0
                     y_pid_prev_e = 0.0
                     y_pid_d = 0.0
-                if ctl == "ik" and bool(getattr(vc, "NO_FACE_VERTICAL_RETURN_ENABLE", True)):
+                no_face_delay_s = max(0.0, float(getattr(vc, "NO_FACE_RETURN_DELAY_S", 30.0)))
+                face_missing_for_s = max(0.0, now_t - last_face_seen_t)
+                should_return_no_face = face_missing_for_s >= no_face_delay_s
+                if (
+                    ctl == "ik"
+                    and bool(getattr(vc, "NO_FACE_VERTICAL_RETURN_ENABLE", True))
+                    and should_return_no_face
+                ):
                     z_relax = max(0.0, float(getattr(vc, "NO_FACE_Z_RETURN_MM_PER_FRAME", 2.5)))
                     x_relax = max(0.0, float(getattr(vc, "NO_FACE_X_RETURN_MM_PER_FRAME", 3.0)))
                     target_z_mm = _step_toward(target_z_mm, fk0.tip.z, z_relax)
@@ -933,6 +942,16 @@ def run_tracking(
                             vis,
                             f"ik x={target_x_mm:5.1f} z={target_z_mm:5.1f} clips={clip_msg}",
                             (10, 96),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (200, 255, 200),
+                            2,
+                        )
+                        remaining = max(0.0, no_face_delay_s - face_missing_for_s)
+                        cv2.putText(
+                            vis,
+                            f"no-face timer: {remaining:4.1f}s to neutral",
+                            (10, 120),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.5,
                             (200, 255, 200),

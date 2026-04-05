@@ -157,18 +157,30 @@ def run_tracking(
         "main": {"size": (width, height), "format": "RGB888"},
         "controls": {"FrameRate": float(getattr(vc, "CAMERA_FPS", 30))},
     }
-    sensor_output = getattr(vc, "SENSOR_OUTPUT_SIZE", None)
-    if isinstance(sensor_output, (tuple, list)) and len(sensor_output) == 2:
-        try:
-            so = (int(sensor_output[0]), int(sensor_output[1]))
-            cfg_kwargs["sensor"] = {"output_size": so}
-        except Exception:
-            pass
-    try:
-        cfg = picam2.create_video_configuration(**cfg_kwargs)
-    except Exception as e:
-        # Fallback for stacks that reject explicit sensor mode hints.
-        print(f"Video cfg with sensor hint failed ({e}); falling back.", flush=True)
+    tried_sensor_modes: list[tuple[int, int]] = []
+    cfg = None
+    sensor_modes = getattr(vc, "SENSOR_OUTPUT_SIZE_FALLBACKS", None)
+    if not isinstance(sensor_modes, (tuple, list)) or len(sensor_modes) == 0:
+        sensor_output = getattr(vc, "SENSOR_OUTPUT_SIZE", None)
+        if isinstance(sensor_output, (tuple, list)) and len(sensor_output) == 2:
+            sensor_modes = (sensor_output,)
+    if isinstance(sensor_modes, (tuple, list)):
+        for mode in sensor_modes:
+            if not isinstance(mode, (tuple, list)) or len(mode) != 2:
+                continue
+            try:
+                so = (int(mode[0]), int(mode[1]))
+                tried_sensor_modes.append(so)
+                cfg_try = dict(cfg_kwargs)
+                cfg_try["sensor"] = {"output_size": so}
+                cfg = picam2.create_video_configuration(**cfg_try)
+                print(f"Video cfg using sensor mode {so}", flush=True)
+                break
+            except Exception as e:
+                print(f"Sensor mode {mode} rejected: {e}", flush=True)
+    if cfg is None:
+        if tried_sensor_modes:
+            print("All requested sensor modes rejected; using default video config.", flush=True)
         cfg = picam2.create_video_configuration(
             main={"size": (width, height), "format": "RGB888"},
             controls={"FrameRate": float(getattr(vc, "CAMERA_FPS", 30))},

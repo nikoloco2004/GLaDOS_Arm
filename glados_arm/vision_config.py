@@ -89,10 +89,10 @@ ZERR_SHOULDER_DEG_PER_MM = 0.35
 ZERR_SHOULDER_MAX_DEG = 35
 ZERR_SIGN_SHOULDER = 1.0
 # Elbow assist in IK mode for vertical compensation.
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 22.0
-TRACK_ELBOW_ASSIST_MAX_DEG = 35
-ELBOW_SMOOTH_ALPHA = 0.25
-ELBOW_MAX_STEP_PER_FRAME_DEG = 3
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 8.0
+TRACK_ELBOW_ASSIST_MAX_DEG = 16
+ELBOW_SMOOTH_ALPHA = 0.12
+ELBOW_MAX_STEP_PER_FRAME_DEG = 1
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 6
@@ -142,7 +142,7 @@ TRACK_GAIN_ELBOW_DEG = 1.2
 # Tuned for your current mechanical/camera installation:
 SIGN_ERROR_X_BASE = -1.0   # -1: face right -> rotate base to bring target back toward center
 SIGN_ERROR_Y_SHOULDER = -1.0
-SIGN_ERROR_Y_ELBOW = -1.0
+SIGN_ERROR_Y_ELBOW = 1.0
 
 # Haar detector (fast; for better accuracy consider YuNet / DNN later)
 HAAR_SCALE_FACTOR = 1.15

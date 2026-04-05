@@ -282,6 +282,7 @@ def run_tracking(
     face_lock_frames = 0
     engage = 0.0
     last_face_seen_t = time.time()
+    no_face_neutral_sent = False
     base_pid_i = 0.0
     base_pid_prev_e = 0.0
     base_pid_d = 0.0
@@ -363,6 +364,7 @@ def run_tracking(
 
             if len(faces) > 0:
                 last_face_seen_t = now_t
+                no_face_neutral_sent = False
                 face_lock_frames += 1
                 areas = [fw * fh for (_x, _y, fw, fh) in faces]
                 i = int(np.argmax(areas))
@@ -876,35 +878,19 @@ def run_tracking(
                     ctl == "ik"
                     and bool(getattr(vc, "NO_FACE_VERTICAL_RETURN_ENABLE", True))
                     and should_return_no_face
+                    and not no_face_neutral_sent
                 ):
-                    z_relax = max(0.0, float(getattr(vc, "NO_FACE_Z_RETURN_MM_PER_FRAME", 2.5)))
-                    x_relax = max(0.0, float(getattr(vc, "NO_FACE_X_RETURN_MM_PER_FRAME", 3.0)))
-                    target_z_mm = _step_toward(target_z_mm, fk0.tip.z, z_relax)
-                    target_x_mm = _step_toward(target_x_mm, fk0.tip.x, x_relax)
-                    target_z_mm = _clamp(
-                        target_z_mm,
-                        float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)),
-                        float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)),
-                    )
-                    target_x_mm = _clamp(
-                        target_x_mm,
-                        float(getattr(vc, "TARGET_X_MIN_MM", 100.0)),
-                        float(getattr(vc, "TARGET_X_MAX_MM", 230.0)),
-                    )
-                    cmd = ServoCommand(
-                        wrist=int(round(_step_toward(float(last_valid_cmd.wrist), float(config.NEUTRAL_WRIST), float(getattr(vc, "NO_FACE_WRIST_RETURN_DEG_PER_FRAME", 4.0))))),
-                        elbow=int(round(_step_toward(float(last_valid_cmd.elbow), float(config.NEUTRAL_ELBOW), float(getattr(vc, "NO_FACE_ELBOW_RETURN_DEG_PER_FRAME", 4.0))))),
-                        base=last_valid_cmd.base,
-                        shoulder=int(round(_step_toward(float(last_valid_cmd.shoulder), float(config.NEUTRAL_SHOULDER), float(getattr(vc, "NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME", 3.0))))),
-                    )
+                    # After timeout, issue one neutral command only.
+                    cmd = _neutral_command()
                     cmd, _ = clamp_servo(cmd)
-                    elbow_cmd_last = cmd.elbow
                     last_valid_cmd = cmd
-                    est_model = servo_to_model(cmd)
-                    est_fk = kinematics.forward_kinematics(est_model.q_shoulder_rad, est_model.q_elbow_rad)
-                    z_err_mm = target_z_mm - est_fk.tip.z
+                    elbow_cmd_last = cmd.elbow
+                    target_x_mm = fk0.tip.x
+                    target_z_mm = fk0.tip.z
+                    z_err_mm = 0.0
                     if use_serial:
-                        controller.send_servo(cmd)
+                        controller.neutral()
+                    no_face_neutral_sent = True
                 if preview:
                     vis = frame_bgr.copy()
                     cv2.line(vis, (int(cx_img), 0), (int(cx_img), h), (180, 180, 180), 1)

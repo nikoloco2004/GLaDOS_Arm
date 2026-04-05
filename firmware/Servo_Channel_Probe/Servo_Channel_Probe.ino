@@ -25,6 +25,8 @@
 constexpr uint8_t PCA_ADDR = 0x40;
 constexpr uint8_t SERVO_HZ = 50;
 constexpr unsigned long BAUD = 115200;
+constexpr unsigned long SERIAL_ATTACH_WAIT_MS = 4000;
+constexpr unsigned long HEARTBEAT_MS = 2000;
 
 // Keep this mapping consistent with your main sketch style.
 constexpr int ANGLE_MIN = 0;
@@ -38,6 +40,7 @@ const uint8_t CH[NUM_CH] = {0, 1, 2, 3};
 Adafruit_PWMServoDriver pwm(PCA_ADDR);
 
 static bool stopRequested = false;
+static unsigned long lastHeartbeatMs = 0;
 
 static int clampAngle(int a) {
   if (a < ANGLE_MIN) return ANGLE_MIN;
@@ -77,6 +80,7 @@ static void printHelp() {
   Serial.println(F("  ALL <0-270>"));
   Serial.println(F("  SWEEP <0-3> <min> <max> <step>"));
   Serial.println(F("  IDENT"));
+  Serial.println(F("  PING"));
   Serial.println(F("  STOP"));
 }
 
@@ -110,6 +114,10 @@ static void runIdentifySequence() {
 
 void setup() {
   Serial.begin(BAUD);
+  unsigned long t0 = millis();
+  while (!Serial && (millis() - t0 < SERIAL_ATTACH_WAIT_MS)) {
+    delay(10);
+  }
   delay(200);
   Wire.begin();
   pwm.begin();
@@ -120,6 +128,8 @@ void setup() {
   Serial.println(F("OK Servo_Channel_Probe ready"));
   Serial.println(F("All channels set to 135 (halfway)."));
   Serial.println(F("Warning: watch mechanically for end-stops while probing."));
+  Serial.print(F("I2C addr: 0x"));
+  Serial.println(PCA_ADDR, HEX);
   printHelp();
   Serial.println(F("Waiting for terminal commands..."));
 }
@@ -140,6 +150,8 @@ void loop() {
 
       if (strcmp(cmd, "HELP") == 0) {
         printHelp();
+      } else if (strcmp(cmd, "PING") == 0) {
+        Serial.println(F("PONG"));
       } else if (strcmp(cmd, "STOP") == 0) {
         stopRequested = true;
         Serial.println(F("OK STOP"));
@@ -222,5 +234,11 @@ void loop() {
       n = 0;
       Serial.println(F("ERR line too long"));
     }
+  }
+
+  unsigned long now = millis();
+  if (now - lastHeartbeatMs >= HEARTBEAT_MS) {
+    lastHeartbeatMs = now;
+    Serial.println(F("HB ready"));
   }
 }

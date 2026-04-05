@@ -21,23 +21,23 @@ LINK_SHOULDER_ELBOW_MM = 130.0
 LINK_ELBOW_WRIST_MM = 120.0
 
 # --- Servo limits (degrees) — validated hardware truth ---
-SERVO_WRIST_MIN = 0
-SERVO_WRIST_MAX = 155
+SERVO_WRIST_MIN = 20
+SERVO_WRIST_MAX = 220
 
-SERVO_ELBOW_MIN = 90
+SERVO_ELBOW_MIN = 80
 SERVO_ELBOW_MAX = 270
 
 SERVO_BASE_MIN = 0
-SERVO_BASE_MAX = 180
+SERVO_BASE_MAX = 270
 
 SERVO_SHOULDER_MIN = 0
 SERVO_SHOULDER_MAX = 180
 
 # --- Neutral pose (degrees) ---
-NEUTRAL_WRIST = 60
-NEUTRAL_ELBOW = 270
-NEUTRAL_BASE = 90
-NEUTRAL_SHOULDER = 0
+NEUTRAL_WRIST = 120
+NEUTRAL_ELBOW = 175
+NEUTRAL_BASE = 135
+NEUTRAL_SHOULDER = 90
 
 # --- Model ↔ servo mapping (CALIBRATE against physical motion) ---
 # Base: model yaw ψ (rad), 0 = neutral (straight ahead in software convention).
@@ -72,8 +72,9 @@ WRIST_BEND_IN_FK_RAD = 0.0
 
 # --- Notes (not used by code; documentation) ---
 SERVO_MODEL_NOTES = (
-    "Base & wrist: MG996R. Shoulder & elbow: DS3225. "
-    "Servo order on Arduino: 1=wrist, 2=elbow, 3=base, 4=shoulder."
+    "All servos are the same beefier type. "
+    "PCA channels: 0=wrist, 1=elbow, 2=shoulder, 3=base. "
+    "SET_SERVO order remains: wrist, elbow, base, shoulder."
 )
 
 

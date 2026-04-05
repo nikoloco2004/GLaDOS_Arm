@@ -24,8 +24,8 @@
 constexpr uint8_t PCA9685_I2C_ADDR = 0x40;
 constexpr uint8_t PCA_CHANNEL_WRIST = 0;
 constexpr uint8_t PCA_CHANNEL_ELBOW = 1;
-constexpr uint8_t PCA_CHANNEL_BASE = 2;
-constexpr uint8_t PCA_CHANNEL_SHOULDER = 3;
+constexpr uint8_t PCA_CHANNEL_SHOULDER = 2;
+constexpr uint8_t PCA_CHANNEL_BASE = 3;
 
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(PCA9685_I2C_ADDR);
 
@@ -46,21 +46,21 @@ constexpr int ANGLE_MAP_GLOBAL_MAX = 270;
 
 // ================= ANGLE LIMITS =================
 constexpr int SERVO1_MIN_ANGLE = 0;
-constexpr int SERVO1_MAX_ANGLE = 155;
+constexpr int SERVO1_MAX_ANGLE = 220;
 
-constexpr int SERVO2_MIN_ANGLE = 90;
+constexpr int SERVO2_MIN_ANGLE = 80;
 constexpr int SERVO2_MAX_ANGLE = 270;
 
 constexpr int SERVO3_MIN_ANGLE = 0;
-constexpr int SERVO3_MAX_ANGLE = 180;
+constexpr int SERVO3_MAX_ANGLE = 270;
 
 constexpr int SERVO4_MIN_ANGLE = 0;
 constexpr int SERVO4_MAX_ANGLE = 180;
 
 // ================= VALIDATED NEUTRAL POSE =================
-constexpr int NEUTRAL_WRIST = 60;
+constexpr int NEUTRAL_WRIST = 200;
 constexpr int NEUTRAL_ELBOW = 270;
-constexpr int NEUTRAL_BASE = 90;
+constexpr int NEUTRAL_BASE = 135;
 constexpr int NEUTRAL_SHOULDER = 0;
 
 // Serial
@@ -100,7 +100,7 @@ const int kNeutralDeg[NUM_JOINTS] = {
   NEUTRAL_WRIST, NEUTRAL_ELBOW, NEUTRAL_BASE, NEUTRAL_SHOULDER};
 
 // Safer startup pose (not near end-stops). Boot enters this first; NEUTRAL can be commanded later.
-const int kStartupDeg[NUM_JOINTS] = {90, 180, 90, 45};
+const int kStartupDeg[NUM_JOINTS] = {120, 175, 135, 90};
 
 int currentDeg[NUM_JOINTS];
 int targetDeg[NUM_JOINTS];

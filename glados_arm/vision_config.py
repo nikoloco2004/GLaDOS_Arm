@@ -52,6 +52,10 @@ BASE_PID_D_ALPHA = 0.45
 BASE_PID_RESET_ON_LOSS = True
 # Extra damping when error crosses zero (helps remove lingering overshoot).
 BASE_PID_ZERO_CROSS_BRAKE = 0.45
+# Two-zone damping near center: keep far response, suppress near-center overshoot.
+BASE_PID_NEAR_ERROR = 0.10
+BASE_PID_NEAR_STEP_SCALE = 0.35
+BASE_PID_ZERO_CROSS_HOLD_FRAMES = 2
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
 # TEMP X-only tuning mode: disable vertical target updates.
 TRACK_Z_MM_PER_NORM = 0.0

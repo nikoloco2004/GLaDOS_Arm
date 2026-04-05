@@ -284,6 +284,7 @@ def run_tracking(
     base_pid_i = 0.0
     base_pid_prev_e = 0.0
     base_pid_d = 0.0
+    base_zero_cross_hold = 0
 
     try:
         while True:
@@ -481,7 +482,8 @@ def run_tracking(
 
                         prev_e = base_pid_prev_e
                         # Reset integral when crossing center to avoid carryover-driven overshoot.
-                        if prev_e * e < 0.0:
+                        crossed_zero = prev_e * e < 0.0
+                        if crossed_zero:
                             base_pid_i = 0.0
                         base_pid_i += e
                         base_pid_i = _clamp(base_pid_i, -i_clamp, i_clamp)
@@ -494,13 +496,27 @@ def run_tracking(
                             if (base_unclamped > 0.0 and e > 0.0) or (base_unclamped < 0.0 and e < 0.0):
                                 base_pid_i -= e
                         # Additional brake right at error sign-crossing to prevent ring.
-                        if prev_e * e < 0.0:
+                        if crossed_zero:
                             cross_brake = _clamp(
                                 float(getattr(vc, "BASE_PID_ZERO_CROSS_BRAKE", 0.45)),
                                 0.0,
                                 1.0,
                             )
                             base_step *= cross_brake
+                            base_zero_cross_hold = max(
+                                0, int(getattr(vc, "BASE_PID_ZERO_CROSS_HOLD_FRAMES", 2))
+                            )
+                        near_err = abs(e) < float(getattr(vc, "BASE_PID_NEAR_ERROR", 0.10))
+                        if near_err:
+                            near_scale = _clamp(
+                                float(getattr(vc, "BASE_PID_NEAR_STEP_SCALE", 0.35)),
+                                0.0,
+                                1.0,
+                            )
+                            base_step *= near_scale
+                        if base_zero_cross_hold > 0 and near_err:
+                            base_step = 0.0
+                            base_zero_cross_hold -= 1
                         base_pid_prev_e = e
                     else:
                         base_step = (
@@ -820,6 +836,7 @@ def run_tracking(
                     base_pid_i = 0.0
                     base_pid_prev_e = 0.0
                     base_pid_d = 0.0
+                    base_zero_cross_hold = 0
                 if ctl == "ik" and bool(getattr(vc, "NO_FACE_VERTICAL_RETURN_ENABLE", True)):
                     z_relax = max(0.0, float(getattr(vc, "NO_FACE_Z_RETURN_MM_PER_FRAME", 2.5)))
                     x_relax = max(0.0, float(getattr(vc, "NO_FACE_X_RETURN_MM_PER_FRAME", 3.0)))

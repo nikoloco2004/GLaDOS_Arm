@@ -51,8 +51,8 @@ BASE_RAD_TO_SERVO_DEG = 180.0 / math.pi
 SHOULDER_SIGN = -1.0
 SHOULDER_RAD_TO_SERVO_DEG = 180.0 / math.pi  # 1 model rad ≈ this many servo degrees (tune)
 
-# Elbow: inverted — "up" motion decreases servo from 270. Model offset from neutral (rad).
-ELBOW_INVERT = True  # if True: servo = NEUTRAL - sign * f(q)
+# Elbow (new hardware mapping): "up" model motion should increase servo command from neutral.
+ELBOW_INVERT = False  # if False: servo = NEUTRAL + sign * f(q)
 ELBOW_SIGN = 1.0
 ELBOW_RAD_TO_SERVO_DEG = 180.0 / math.pi
 

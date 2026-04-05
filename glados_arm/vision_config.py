@@ -7,21 +7,21 @@ Install on Pi: ``sudo apt install -y python3-picamera2 python3-opencv`` (or use 
 from __future__ import annotations
 
 # Capture size — keep 4:3 to avoid the zoomed/cropped feel on Pi Cam v2.1.
-# Pi Cam v3 is native 16:9; this mode keeps wide FOV while still performant.
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 720
+# Pi Cam v3 wide-FOV mode (prioritize zoomed-out framing over max FPS).
+CAMERA_WIDTH = 1152
+CAMERA_HEIGHT = 648
 
 # Optional cap on frame rate (Picamera2 controls); None = library default
-CAMERA_FPS = 30
+CAMERA_FPS = 24
 
-# Try to force a full-sensor mode (Pi Cam v3: 4608x2592) before scaling to main size.
+# Try to force a full-sensor-style binned mode before scaling to main size.
 # If unsupported on your stack, code falls back automatically.
-SENSOR_OUTPUT_SIZE = (4608, 2592)
+SENSOR_OUTPUT_SIZE = (2304, 1296)
 
 # Keep full-sensor crop enforced to avoid creeping zoom in some libcamera pipelines.
 FORCE_MAX_SCALERCROP = True
-SCALERCROP_REAPPLY_SECONDS = 8.0
-SCALERCROP_REAPPLY_EVERY_N_FRAMES = 12
+SCALERCROP_REAPPLY_SECONDS = 20.0
+SCALERCROP_REAPPLY_EVERY_N_FRAMES = 1
 
 # Downscale width for Haar detection only (speed); full-res frame used for preview & overlay.
 DETECT_MAX_WIDTH = 256

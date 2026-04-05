@@ -127,6 +127,16 @@ class RobotController:
         self.serial.write_line("NEUTRAL")
         return [self.serial.read_line()]
 
+    def startup(self) -> list[str]:
+        if not self.serial:
+            raise RuntimeError("no serial configured")
+        line = (
+            f"SET_SERVO {config.STARTUP_WRIST} {config.STARTUP_ELBOW} "
+            f"{config.STARTUP_BASE} {config.STARTUP_SHOULDER}"
+        )
+        self.serial.write_line(line)
+        return [self.serial.read_line()]
+
     def ping(self) -> bool:
         if not self.serial:
             return False

@@ -218,7 +218,7 @@ def run_tracking(
             print(f"No PONG from Arduino on {port} — check USB and port.", file=sys.stderr)
             picam2.stop()
             return 1
-        controller.neutral()
+        controller.startup()
 
     cmd = _neutral_command()
     last_valid_cmd = cmd

@@ -39,6 +39,13 @@ NEUTRAL_ELBOW = 175
 NEUTRAL_BASE = 135
 NEUTRAL_SHOULDER = 90
 
+# --- Startup pose (degrees) ---
+# Used by high-level tracking on connect; can differ from neutral.
+STARTUP_WRIST = 120
+STARTUP_ELBOW = 175
+STARTUP_BASE = 135
+STARTUP_SHOULDER = 90
+
 # --- Model ↔ servo mapping (CALIBRATE against physical motion) ---
 # Base: model yaw ψ (rad), 0 = neutral (straight ahead in software convention).
 # Positive ψ increases → positive servo delta if BASE_YAW_SIGN = +1.

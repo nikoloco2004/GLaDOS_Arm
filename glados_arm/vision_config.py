@@ -43,9 +43,9 @@ TRACK_BASE_RAD_PER_NORM = 0.09
 # Base X controller mode: "p" (legacy proportional) or "pid".
 BASE_X_CTRL_MODE = "pid"
 # PID tuning for base X (output is radians per frame, then clamped by MAX_BASE_YAW_STEP_RAD).
-BASE_PID_KP = 0.085
+BASE_PID_KP = 0.095
 BASE_PID_KI = 0.0002
-BASE_PID_KD = 0.032
+BASE_PID_KD = 0.030
 # Integral clamp (in normalized-error frame-sum units) and derivative smoothing.
 BASE_PID_I_CLAMP = 2.0
 BASE_PID_D_ALPHA = 0.45
@@ -54,8 +54,8 @@ BASE_PID_RESET_ON_LOSS = True
 BASE_PID_ZERO_CROSS_BRAKE = 0.45
 # Two-zone damping near center: keep far response, suppress near-center overshoot.
 BASE_PID_NEAR_ERROR = 0.10
-BASE_PID_NEAR_STEP_SCALE = 0.35
-BASE_PID_ZERO_CROSS_HOLD_FRAMES = 2
+BASE_PID_NEAR_STEP_SCALE = 0.45
+BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
 # TEMP X-only tuning mode: disable vertical target updates.
 TRACK_Z_MM_PER_NORM = 0.0
@@ -76,10 +76,10 @@ TARGET_Z_MIN_MM = 0.0
 TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
-MAX_BASE_YAW_STEP_RAD = 0.028
+MAX_BASE_YAW_STEP_RAD = 0.033
 MAX_Z_STEP_MM = 0.0
 MAX_X_STEP_MM = 3.0
-FACE_CENTER_ALPHA = 0.17
+FACE_CENTER_ALPHA = 0.19
 
 # Distance control from face box size (applies in IK mode).
 # We estimate relative distance from detected face width in pixels:
@@ -146,7 +146,7 @@ NO_FACE_ELBOW_RETURN_DEG_PER_FRAME = 4.0
 NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME = 3.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
-TRACK_DEADBAND = 0.045
+TRACK_DEADBAND = 0.040
 
 # Adaptive ramping:
 # Start with gentle correction, then ramp up if target stays outside center for multiple frames.

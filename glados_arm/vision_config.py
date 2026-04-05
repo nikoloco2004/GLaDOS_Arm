@@ -32,7 +32,7 @@ CONTROL_MODE = "ik"
 # Image X correction (normalized) -> base yaw delta (rad/frame)
 TRACK_BASE_RAD_PER_NORM = 0.20
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
-# Kept intentionally low so Y behavior is mostly wrist-led.
+# TEMP X-only tuning mode: disable vertical target updates.
 TRACK_Z_MM_PER_NORM = 0.0
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
@@ -60,7 +60,7 @@ FACE_CENTER_ALPHA = 0.35
 # We estimate relative distance from detected face width in pixels:
 # larger face -> person is closer, smaller face -> person is farther.
 # The controller nudges target_x_mm (range depth) toward DESIRED_FACE_WIDTH_PX.
-DIST_CONTROL_ENABLE = True
+DIST_CONTROL_ENABLE = False
 DESIRED_FACE_WIDTH_PX = 160.0
 DIST_DEADBAND_PX = 2.0
 DIST_ERR_CLAMP_PX = 120.0
@@ -79,7 +79,7 @@ DIST_Z_MAX_STEP_MM = 1.0
 TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 0.0
 TRACK_SHOULDER_ASSIST_MAX_DEG = 0
 # Distance-driven shoulder assist (independent of Y).
-DIST_SHOULDER_ASSIST_ENABLE = True
+DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
 DIST_SHOULDER_MAX_DEG = 10
 DIST_SIGN_SHOULDER = 1.0
@@ -91,7 +91,7 @@ ZERR_SHOULDER_DEG_PER_MM = 0.10
 ZERR_SHOULDER_MAX_DEG = 8
 ZERR_SIGN_SHOULDER = 1.0
 # Elbow assist in IK mode for vertical compensation.
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 5.0
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 0.0
 TRACK_ELBOW_ASSIST_MAX_DEG = 16
 ELBOW_SMOOTH_ALPHA = 0.08
 ELBOW_MAX_STEP_PER_FRAME_DEG = 1
@@ -104,8 +104,8 @@ ENGAGE_DOWN_PER_FRAME = 0.35
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
-TRACK_WRIST_DEG_PER_NORM = 70.0
-TRACK_WRIST_MIN_STEP_DEG = 2
+TRACK_WRIST_DEG_PER_NORM = 0.0
+TRACK_WRIST_MIN_STEP_DEG = 0
 TRACK_WRIST_MAX_TRIM_DEG = 95
 SIGN_ERROR_Y_WRIST = 1.0
 WRIST_SMOOTH_ALPHA = 0.25

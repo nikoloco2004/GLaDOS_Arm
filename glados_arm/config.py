@@ -65,7 +65,7 @@ WRIST_RAD_TO_SERVO_DEG = 180.0 / math.pi
 # absolute link angles (shoulder link from +x, elbow as interior bend).
 # **Calibrate** so FK matches a physical measurement at neutral.
 THETA1_REF_NEUTRAL_RAD = 0.25  # final micro-pass: test if this further reduces shoulder-min clipping
-THETA2_REF_NEUTRAL_RAD = 0.50  # elbow neutral offset retune for new servo installation
+THETA2_REF_NEUTRAL_RAD = 0.55  # elbow neutral offset retune for new servo installation
 
 # Optional: include wrist as constant extra rotation at tip for FK (rad); v1 default 0.
 WRIST_BEND_IN_FK_RAD = 0.0

@@ -61,11 +61,11 @@ TRACK_Z_MM_PER_NORM = 3.5
 # Vertical Y->Z controller mode: "p" (legacy proportional) or "pid".
 Y_Z_CTRL_MODE = "pid"
 # PID tuning for vertical correction (output in mm/frame, then clamped by MAX_Z_STEP_MM).
-Y_PID_KP = 1.8
-Y_PID_KI = 0.03
-Y_PID_KD = 0.8
+Y_PID_KP = 1.2
+Y_PID_KI = 0.01
+Y_PID_KD = 1.1
 Y_PID_I_CLAMP = 2.5
-Y_PID_D_ALPHA = 0.35
+Y_PID_D_ALPHA = 0.50
 Y_PID_RESET_ON_LOSS = True
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
@@ -85,7 +85,7 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.052
-MAX_Z_STEP_MM = 1.8
+MAX_Z_STEP_MM = 1.2
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.25
 

@@ -87,6 +87,47 @@ def _step_toward(cur: float, target: float, max_step: float) -> float:
     return cur + max_step if d > 0 else cur - max_step
 
 
+def _apply_first_find_extend(
+    cmd: ServoCommand,
+    phase: str,
+    ramp: float,
+    vc: object,
+) -> tuple[ServoCommand, str, float]:
+    """
+    On first face after none: shoulder/elbow blend neutral → 25% of IK delta (slow), then → full IK (slow).
+    Base and wrist follow the current command unchanged.
+    """
+    nu = _neutral_command()
+    ef = float(getattr(vc, "FIRST_FIND_EXTEND_FRACTION", 0.25))
+    ef = max(0.0, min(1.0, ef))
+    pq = max(1e-6, float(getattr(vc, "FIRST_FIND_TO_QUARTER_PER_FRAME", 0.012)))
+    pf = max(1e-6, float(getattr(vc, "FIRST_FIND_TO_FULL_PER_FRAME", 0.035)))
+
+    if phase == "idle":
+        return cmd, phase, ramp
+    if phase == "to_quarter":
+        ramp = min(1.0, ramp + pq)
+        fac = ef * ramp
+        sh = int(round(nu.shoulder + fac * (cmd.shoulder - nu.shoulder)))
+        el = int(round(nu.elbow + fac * (cmd.elbow - nu.elbow)))
+        out = ServoCommand(wrist=cmd.wrist, elbow=el, base=cmd.base, shoulder=sh)
+        out, _ = clamp_servo(out)
+        if ramp >= 1.0 - 1e-9:
+            return out, "to_full", 0.0
+        return out, phase, ramp
+    if phase == "to_full":
+        ramp = min(1.0, ramp + pf)
+        factor = ef + (1.0 - ef) * ramp
+        sh = int(round(nu.shoulder + factor * (cmd.shoulder - nu.shoulder)))
+        el = int(round(nu.elbow + factor * (cmd.elbow - nu.elbow)))
+        out = ServoCommand(wrist=cmd.wrist, elbow=el, base=cmd.base, shoulder=sh)
+        out, _ = clamp_servo(out)
+        if ramp >= 1.0 - 1e-9:
+            return out, "idle", 0.0
+        return out, phase, ramp
+    return cmd, "idle", 0.0
+
+
 def _base_yaw_limit_rad() -> float:
     """
     Compute a safe yaw limit that cannot request base servo values outside hardware limits.
@@ -304,6 +345,9 @@ def run_tracking(
     y_pid_i = 0.0
     y_pid_prev_e = 0.0
     y_pid_d = 0.0
+    prev_had_face = False
+    first_find_phase = "idle"
+    first_find_ramp = 0.0
 
     try:
         while True:
@@ -377,6 +421,10 @@ def run_tracking(
             z_err_mm = 0.0
 
             if len(faces) > 0:
+                if not prev_had_face:
+                    if bool(getattr(vc, "FIRST_FIND_EXTEND_ENABLE", True)):
+                        first_find_phase = "to_quarter"
+                        first_find_ramp = 0.0
                 last_face_seen_t = now_t
                 no_face_neutral_sent = False
                 face_lock_frames += 1
@@ -782,6 +830,12 @@ def run_tracking(
                     cmd = cl
                     elbow_cmd_last = cmd.elbow
 
+                if first_find_phase != "idle":
+                    cmd, first_find_phase, first_find_ramp = _apply_first_find_extend(
+                        cmd, first_find_phase, first_find_ramp, vc
+                    )
+                    elbow_cmd_last = cmd.elbow
+
                 if use_serial:
                     controller.send_servo(cmd)
 
@@ -793,7 +847,7 @@ def run_tracking(
                     cv2.circle(vis, (int(cx), int(cy)), 5, (0, 0, 255), -1)
                     cv2.putText(
                         vis,
-                        f"mode={ctl} b={cmd.base} s={cmd.shoulder} e={cmd.elbow} w={cmd.wrist}",
+                        f"mode={ctl} first_find={first_find_phase} b={cmd.base} s={cmd.shoulder} e={cmd.elbow} w={cmd.wrist}",
                         (10, 24),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.6,
@@ -870,6 +924,8 @@ def run_tracking(
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
             else:
+                first_find_phase = "idle"
+                first_find_ramp = 0.0
                 face_lock_frames = 0
                 engage = _step_toward(
                     engage,
@@ -960,6 +1016,7 @@ def run_tracking(
                     cv2.imshow("GLaDOS face track", vis)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
+            prev_had_face = len(faces) > 0
             frame_idx += 1
 
     except KeyboardInterrupt:

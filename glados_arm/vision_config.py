@@ -62,13 +62,13 @@ BASE_PID_NEAR_ERROR = 0.10
 BASE_PID_NEAR_STEP_SCALE = 0.55
 BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
 # Image Y correction (normalized) -> vertical target z delta (mm/frame)
-TRACK_Z_MM_PER_NORM = 3.5
+TRACK_Z_MM_PER_NORM = 4.8
 # Vertical Y->Z controller mode: "p" (legacy proportional) or "pid".
 Y_Z_CTRL_MODE = "pid"
 # PID tuning for vertical correction (output in mm/frame, then clamped by MAX_Z_STEP_MM).
-Y_PID_KP = 1.2
-Y_PID_KI = 0.01
-Y_PID_KD = 1.1
+Y_PID_KP = 1.65
+Y_PID_KI = 0.012
+Y_PID_KD = 1.35
 Y_PID_I_CLAMP = 2.5
 Y_PID_D_ALPHA = 0.50
 Y_PID_RESET_ON_LOSS = True
@@ -90,7 +90,7 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.052
-MAX_Z_STEP_MM = 1.2
+MAX_Z_STEP_MM = 2.4
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.25
 
@@ -114,8 +114,8 @@ DIST_Z_MM_PER_PX = 0.15
 DIST_Z_MAX_STEP_MM = 1.0
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
-TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 2.0
-TRACK_SHOULDER_ASSIST_MAX_DEG = 6
+TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 3.2
+TRACK_SHOULDER_ASSIST_MAX_DEG = 12
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
@@ -129,11 +129,11 @@ ZERR_SHOULDER_DEG_PER_MM = 0.10
 ZERR_SHOULDER_MAX_DEG = 8
 ZERR_SIGN_SHOULDER = 1.0
 # Elbow assist in IK mode for vertical compensation.
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 3.5
-TRACK_ELBOW_ASSIST_MAX_DEG = 16
-ELBOW_SMOOTH_ALPHA = 0.05
-ELBOW_MAX_STEP_PER_FRAME_DEG = 1
-ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 1
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 4.5
+TRACK_ELBOW_ASSIST_MAX_DEG = 20
+ELBOW_SMOOTH_ALPHA = 0.14
+ELBOW_MAX_STEP_PER_FRAME_DEG = 3
+ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 4
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 6
@@ -144,14 +144,14 @@ ENGAGE_DOWN_PER_FRAME = 0.35
 # Resets each time the face is lost and found again.
 FIRST_FIND_EXTEND_ENABLE = True
 FIRST_FIND_EXTEND_FRACTION = 0.25  # first phase stops at 25% of (IK - neutral) on shoulder/elbow
-FIRST_FIND_TO_QUARTER_PER_FRAME = 0.02  # ramp 0→1 (~50 frames); was too slow + integer rounding hid motion
-FIRST_FIND_TO_FULL_PER_FRAME = 0.05
+FIRST_FIND_TO_QUARTER_PER_FRAME = 0.055  # faster shoulder/elbow first-reach (does not affect wrist tuning below)
+FIRST_FIND_TO_FULL_PER_FRAME = 0.11
 # If vertical error is inside deadband (face near center), still nudge IK so shoulder/elbow have a target.
-FIRST_FIND_MIN_VERTICAL_NORM = 0.18
+FIRST_FIND_MIN_VERTICAL_NORM = 0.22
 # Extra degrees added to IK shoulder/elbow *targets* so first-find always has something to reach toward
 # (IK alone is often still ~neutral when engage was masking error). Flip signs if the arm moves wrong way.
-FIRST_FIND_BIAS_SHOULDER_DEG = -14.0
-FIRST_FIND_BIAS_ELBOW_DEG = 12.0
+FIRST_FIND_BIAS_SHOULDER_DEG = -20.0
+FIRST_FIND_BIAS_ELBOW_DEG = 16.0
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.

@@ -80,8 +80,8 @@ VERTICAL_Y_PID_RESET_ON_LOSS = True
 VERTICAL_Y_WRIST_RATIO = 0.34
 VERTICAL_Y_SHOULDER_RATIO = 0.33
 VERTICAL_Y_ELBOW_RATIO = 0.33
-# Tandem vertical PID only: flip elbow contribution relative to wrist/shoulder (+1 = same sign, -1 = inverted).
-VERTICAL_Y_ELBOW_SIGN = -1.0
+# Tandem vertical PID only: multiply elbow delta (+1 = same sign as wrist/shoulder, -1 = opposite).
+VERTICAL_Y_ELBOW_SIGN = 1.0
 # PID tuning for vertical correction (output in mm/frame, then clamped by MAX_Z_STEP_MM).
 # Used only when VERTICAL_IK_Z_FROM_IMAGE_ENABLE is True.
 Y_PID_KP = 0.82

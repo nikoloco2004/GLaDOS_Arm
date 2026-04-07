@@ -695,7 +695,7 @@ def run_tracking(
                         rw = float(getattr(vc, "VERTICAL_Y_WRIST_RATIO", 0.34))
                         rs = float(getattr(vc, "VERTICAL_Y_SHOULDER_RATIO", 0.33))
                         re = float(getattr(vc, "VERTICAL_Y_ELBOW_RATIO", 0.33))
-                        elbow_sign = float(getattr(vc, "VERTICAL_Y_ELBOW_SIGN", -1.0))
+                        elbow_sign = float(getattr(vc, "VERTICAL_Y_ELBOW_SIGN", 1.0))
                         wt = int(round(y_vert_out_deg * rw))
                         d_sh_y = int(round(y_vert_out_deg * rs))
                         d_el_y = int(round(y_vert_out_deg * re * elbow_sign))

@@ -489,9 +489,22 @@ def run_tracking(
 
                     corr_x_ctrl = corr_x_norm * x_ramp
                     corr_y_ctrl = corr_y_norm * y_ramp
+                # Pre-engage: IK needs non-zero vertical error on first face while engage≈0, or cmd≈neutral
+                # and first-find blend does nothing. Wrist/assist still use engaged corr below.
+                corr_x_pre_eng = corr_x_ctrl
+                corr_y_pre_eng = corr_y_ctrl
                 # Smooth first-lock behavior so the arm does not snap/overshoot on reacquire.
                 corr_x_ctrl *= engage
                 corr_y_ctrl *= engage
+                # Full vertical pre-engage signal for IK only during first-find ramp (base still uses engage).
+                corr_y_ik = corr_y_pre_eng if first_find_phase != "idle" else corr_y_ctrl
+                if first_find_phase != "idle":
+                    min_v = float(getattr(vc, "FIRST_FIND_MIN_VERTICAL_NORM", 0.0))
+                    if min_v > 0.0 and abs(corr_y_ik) < min_v:
+                        sgn = 1.0 if corr_y_norm >= 0.0 else -1.0
+                        if abs(corr_y_norm) < 1e-6:
+                            sgn = 1.0
+                        corr_y_ik = sgn * min_v
                 wrist_cmd = (
                     float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
                     * corr_y_ctrl
@@ -599,7 +612,7 @@ def run_tracking(
                     base_yaw_rad += base_step
                     base_yaw_rad = _clamp(base_yaw_rad, -base_yaw_lim, base_yaw_lim)
 
-                    y_for_z = corr_y_ctrl + float(getattr(vc, "SIGN_ERROR_X_TO_Z", 1.0)) * float(
+                    y_for_z = corr_y_ik + float(getattr(vc, "SIGN_ERROR_X_TO_Z", 1.0)) * float(
                         getattr(vc, "TRACK_Z_FROM_X_MIX", 0.0)
                     ) * corr_x_ctrl
                     y_for_z = _clamp(y_for_z, -1.0, 1.0)

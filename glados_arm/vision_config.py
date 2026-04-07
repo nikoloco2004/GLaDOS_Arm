@@ -146,6 +146,8 @@ FIRST_FIND_EXTEND_ENABLE = True
 FIRST_FIND_EXTEND_FRACTION = 0.25  # first phase stops at 25% of (IK - neutral) on shoulder/elbow
 FIRST_FIND_TO_QUARTER_PER_FRAME = 0.012  # ramp 0→1 over ~83 frames for the quarter reach
 FIRST_FIND_TO_FULL_PER_FRAME = 0.035  # then ramp 25%→100% of IK delta over ~29 frames
+# If vertical error is inside deadband (face near center), still nudge IK so shoulder/elbow have a target.
+FIRST_FIND_MIN_VERTICAL_NORM = 0.12
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.

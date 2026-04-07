@@ -150,8 +150,8 @@ FIRST_FIND_TO_FULL_PER_FRAME = 0.11
 FIRST_FIND_MIN_VERTICAL_NORM = 0.22
 # Extra degrees added to IK shoulder/elbow *targets* so first-find always has something to reach toward
 # (IK alone is often still ~neutral when engage was masking error). Flip signs if the arm moves wrong way.
-FIRST_FIND_BIAS_SHOULDER_DEG = -20.0
-FIRST_FIND_BIAS_ELBOW_DEG = 16.0
+FIRST_FIND_BIAS_SHOULDER_DEG = 20.0
+FIRST_FIND_BIAS_ELBOW_DEG = -16.0
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
@@ -196,8 +196,8 @@ TRACK_GAIN_ELBOW_DEG = 1.2
 # Sign flips if your mount/camera orientation reverses left/right or up/down
 # Tuned for your current mechanical/camera installation:
 SIGN_ERROR_X_BASE = -1.0   # -1: face right -> rotate base to bring target back toward center
-SIGN_ERROR_Y_SHOULDER = -1.0  # flipped: vertical IK + proportional "up" was moving chain down
-SIGN_ERROR_Y_ELBOW = -1.0
+SIGN_ERROR_Y_SHOULDER = 1.0
+SIGN_ERROR_Y_ELBOW = 1.0
 
 # Haar detector (fast; for better accuracy consider YuNet / DNN later)
 HAAR_SCALE_FACTOR = 1.15

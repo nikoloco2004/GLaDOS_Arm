@@ -696,9 +696,15 @@ def run_tracking(
                         rs = float(getattr(vc, "VERTICAL_Y_SHOULDER_RATIO", 0.33))
                         re = float(getattr(vc, "VERTICAL_Y_ELBOW_RATIO", 0.33))
                         elbow_sign = float(getattr(vc, "VERTICAL_Y_ELBOW_SIGN", 1.0))
+                        fb_sh = float(getattr(vc, "FIRST_FIND_BIAS_SHOULDER_DEG", 10.0))
+                        fb_el = float(getattr(vc, "FIRST_FIND_BIAS_ELBOW_DEG", -8.0))
+                        if bool(getattr(vc, "VERTICAL_Y_ELBOW_FOLLOW_FIRST_FIND_BIAS", True)):
+                            elbow_scale = (fb_el / fb_sh) if abs(fb_sh) > 1e-6 else -1.0
+                        else:
+                            elbow_scale = 1.0
                         wt = int(round(y_vert_out_deg * rw))
                         d_sh_y = int(round(y_vert_out_deg * rs))
-                        d_el_y = int(round(y_vert_out_deg * re * elbow_sign))
+                        d_el_y = int(round(y_vert_out_deg * re * elbow_scale * elbow_sign))
                         wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
                         wt = max(-wrist_max_trim, min(wrist_max_trim, wt))
                         wrist_trim_deg = wt

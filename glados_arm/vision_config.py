@@ -80,7 +80,10 @@ VERTICAL_Y_PID_RESET_ON_LOSS = True
 VERTICAL_Y_WRIST_RATIO = 0.34
 VERTICAL_Y_SHOULDER_RATIO = 0.33
 VERTICAL_Y_ELBOW_RATIO = 0.33
-# Tandem vertical PID only: multiply elbow delta (+1 = same sign as wrist/shoulder, -1 = opposite).
+# Tandem elbow: by default scale by FIRST_FIND_BIAS_ELBOW/FIRST_FIND_BIAS_SHOULDER so elbow servo
+# moves with the same relative sense as first-find (shoulder + / elbow - on this arm). Override with
+# VERTICAL_Y_ELBOW_FOLLOW_FIRST_FIND_BIAS = False and tune VERTICAL_Y_ELBOW_SIGN (+/-1) if needed.
+VERTICAL_Y_ELBOW_FOLLOW_FIRST_FIND_BIAS = True
 VERTICAL_Y_ELBOW_SIGN = 1.0
 # PID tuning for vertical correction (output in mm/frame, then clamped by MAX_Z_STEP_MM).
 # Used only when VERTICAL_IK_Z_FROM_IMAGE_ENABLE is True.

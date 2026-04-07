@@ -99,8 +99,9 @@ const int kMaxDeg[NUM_JOINTS] = {
 const int kNeutralDeg[NUM_JOINTS] = {
   NEUTRAL_WRIST, NEUTRAL_ELBOW, NEUTRAL_BASE, NEUTRAL_SHOULDER};
 
-// Safer startup pose (not near end-stops). Boot enters this first; NEUTRAL can be commanded later.
-const int kStartupDeg[NUM_JOINTS] = {120, 175, 135, 90};
+// Boot uses the same pose as NEUTRAL so tracking/IK and the Arduino stay consistent.
+const int kStartupDeg[NUM_JOINTS] = {
+  NEUTRAL_WRIST, NEUTRAL_ELBOW, NEUTRAL_BASE, NEUTRAL_SHOULDER};
 
 int currentDeg[NUM_JOINTS];
 int targetDeg[NUM_JOINTS];
@@ -408,7 +409,7 @@ void setup() {
 
   Wire.begin();
 
-  // Start with safer (non-end-stop) boot targets even if hardware is not yet online.
+  // Boot targets match validated neutral (same as NEUTRAL command).
   for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
     targetDeg[j] = kStartupDeg[j];
     currentDeg[j] = kStartupDeg[j];
@@ -432,8 +433,7 @@ void loop() {
       lastPcaRetryMs = now;
       if (tryInitPca9685()) {
         applyTargetsStaggered(STARTUP_SERVO_STAGGER_MS);
-        Serial.println(F("OK PCA9685 online; safe startup pose applied"));
-        Serial.println(F("INFO use NEUTRAL command after boot if you want calibrated neutral pose"));
+        Serial.println(F("OK PCA9685 online; neutral startup pose applied"));
         if (debugEnabled) printStatus();
       }
     }

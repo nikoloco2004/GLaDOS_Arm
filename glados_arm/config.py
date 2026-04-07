@@ -34,17 +34,18 @@ SERVO_SHOULDER_MIN = 0
 SERVO_SHOULDER_MAX = 180
 
 # --- Neutral pose (degrees) ---
-NEUTRAL_WRIST = 120
-NEUTRAL_ELBOW = 175
+# Must match firmware `NEUTRAL_*` / `kNeutralDeg` in `firmware/GLaDOS_Arm/GLaDOS_Arm.ino`.
+NEUTRAL_WRIST = 200
+NEUTRAL_ELBOW = 270
 NEUTRAL_BASE = 135
-NEUTRAL_SHOULDER = 90
+NEUTRAL_SHOULDER = 0
 
 # --- Startup pose (degrees) ---
-# Used by high-level tracking on connect; can differ from neutral.
-STARTUP_WRIST = 120
-STARTUP_ELBOW = 175
-STARTUP_BASE = 135
-STARTUP_SHOULDER = 90
+# Kept equal to neutral so face tracking / IK do not jump to a different "boot" pose.
+STARTUP_WRIST = NEUTRAL_WRIST
+STARTUP_ELBOW = NEUTRAL_ELBOW
+STARTUP_BASE = NEUTRAL_BASE
+STARTUP_SHOULDER = NEUTRAL_SHOULDER
 
 # --- Model ↔ servo mapping (CALIBRATE against physical motion) ---
 # Base: model yaw ψ (rad), 0 = neutral (straight ahead in software convention).

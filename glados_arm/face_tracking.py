@@ -218,7 +218,9 @@ def run_tracking(
             print(f"No PONG from Arduino on {port} — check USB and port.", file=sys.stderr)
             picam2.stop()
             return 1
-        controller.startup()
+        # Use NEUTRAL (same pose as firmware kStartupDeg) — not SET_SERVO startup angles that
+        # used to differ from validated neutral and caused a snap when a face was first tracked.
+        controller.neutral()
 
     cmd = _neutral_command()
     last_valid_cmd = cmd

@@ -461,7 +461,7 @@ def run_tracking(
 
             if len(faces) > 0:
                 if not prev_had_face:
-                    if bool(getattr(vc, "FIRST_FIND_EXTEND_ENABLE", True)):
+                    if bool(getattr(vc, "FIRST_FIND_EXTEND_ENABLE", False)):
                         first_find_phase = "to_quarter"
                         first_find_ramp = 0.0
                 y_vert_out_deg = 0.0
@@ -531,22 +531,23 @@ def run_tracking(
 
                     corr_x_ctrl = corr_x_norm * x_ramp
                     corr_y_ctrl = corr_y_norm * y_ramp
-                # Pre-engage: IK needs non-zero vertical error on first face while engage≈0, or cmd≈neutral
-                # and first-find blend does nothing. Wrist/assist still use engaged corr below.
+                # Pre-engage: ramped norm error before engage mask (wrist/assist use engaged corr below).
                 corr_x_pre_eng = corr_x_ctrl
                 corr_y_pre_eng = corr_y_ctrl
-                # Smooth first-lock behavior so the arm does not snap/overshoot on reacquire.
                 corr_x_ctrl *= engage
                 corr_y_ctrl *= engage
-                # Full vertical pre-engage signal for IK only during first-find ramp (base still uses engage).
-                corr_y_ik = corr_y_pre_eng if first_find_phase != "idle" else corr_y_ctrl
-                if first_find_phase != "idle":
-                    min_v = float(getattr(vc, "FIRST_FIND_MIN_VERTICAL_NORM", 0.0))
-                    if min_v > 0.0 and abs(corr_y_ik) < min_v:
-                        sgn = 1.0 if corr_y_norm >= 0.0 else -1.0
-                        if abs(corr_y_norm) < 1e-6:
-                            sgn = 1.0
-                        corr_y_ik = sgn * min_v
+                # IK vertical: use full corr_y_pre_eng unless first-find extend is on and idle (legacy).
+                if bool(getattr(vc, "FIRST_FIND_EXTEND_ENABLE", False)):
+                    corr_y_ik = corr_y_pre_eng if first_find_phase != "idle" else corr_y_ctrl
+                    if first_find_phase != "idle":
+                        min_v = float(getattr(vc, "FIRST_FIND_MIN_VERTICAL_NORM", 0.0))
+                        if min_v > 0.0 and abs(corr_y_ik) < min_v:
+                            sgn = 1.0 if corr_y_norm >= 0.0 else -1.0
+                            if abs(corr_y_norm) < 1e-6:
+                                sgn = 1.0
+                            corr_y_ik = sgn * min_v
+                else:
+                    corr_y_ik = corr_y_pre_eng
                 if not use_vert_tandem:
                     wrist_cmd = (
                         float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
@@ -946,7 +947,7 @@ def run_tracking(
                     cmd = cl
                     elbow_cmd_last = cmd.elbow
 
-                if first_find_phase != "idle":
+                if bool(getattr(vc, "FIRST_FIND_EXTEND_ENABLE", False)) and first_find_phase != "idle":
                     cmd, first_find_phase, first_find_ramp = _apply_first_find_extend(
                         cmd, first_find_phase, first_find_ramp, vc
                     )

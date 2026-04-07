@@ -161,9 +161,9 @@ LOCK_IN_FRAMES = 6
 ENGAGE_UP_PER_FRAME = 0.20
 ENGAGE_DOWN_PER_FRAME = 0.35
 
-# First acquisition after no-face: move shoulder/elbow only partway toward IK, slowly, then ramp to full.
-# Resets each time the face is lost and found again.
-FIRST_FIND_EXTEND_ENABLE = True
+# First acquisition after no-face: optional slow blend from neutral toward IK (can jerk on re-acquire).
+# Off by default: IK uses full vertical error immediately; no staged shoulder/elbow ramp.
+FIRST_FIND_EXTEND_ENABLE = False
 FIRST_FIND_EXTEND_FRACTION = 0.25  # first phase stops at 25% of (IK - neutral) on shoulder/elbow
 FIRST_FIND_TO_QUARTER_PER_FRAME = 0.022
 FIRST_FIND_TO_FULL_PER_FRAME = 0.04

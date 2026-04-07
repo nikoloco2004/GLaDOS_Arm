@@ -65,7 +65,25 @@ BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
 TRACK_Z_MM_PER_NORM = 2.2
 # Vertical Y->Z controller mode: "p" (legacy proportional) or "pid".
 Y_Z_CTRL_MODE = "pid"
+# When True: image Y integrates target_z_mm (IK plane) — classic vertical IK.
+# When False: no Z from image Y; use VERTICAL_Y_PID (degrees) split across wrist+shoulder+elbow in tandem.
+VERTICAL_IK_Z_FROM_IMAGE_ENABLE = False
+# Tandem vertical PID (degrees total before ratio split). Tune for smooth/accurate Y tracking.
+VERTICAL_Y_PID_KP = 10.0
+VERTICAL_Y_PID_KI = 0.08
+VERTICAL_Y_PID_KD = 1.8
+VERTICAL_Y_PID_I_CLAMP = 6.0
+VERTICAL_Y_PID_D_ALPHA = 0.4
+VERTICAL_Y_PID_MAX_DEG = 16.0
+VERTICAL_Y_PID_RESET_ON_LOSS = True
+# How the PID output (deg) is shared across joints (same sign as wrist was using).
+VERTICAL_Y_WRIST_RATIO = 0.34
+VERTICAL_Y_SHOULDER_RATIO = 0.33
+VERTICAL_Y_ELBOW_RATIO = 0.33
+# Tandem vertical PID only: flip elbow contribution relative to wrist/shoulder (+1 = same sign, -1 = inverted).
+VERTICAL_Y_ELBOW_SIGN = -1.0
 # PID tuning for vertical correction (output in mm/frame, then clamped by MAX_Z_STEP_MM).
+# Used only when VERTICAL_IK_Z_FROM_IMAGE_ENABLE is True.
 Y_PID_KP = 0.82
 Y_PID_KI = 0.006
 Y_PID_KD = 0.65

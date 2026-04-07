@@ -144,10 +144,14 @@ ENGAGE_DOWN_PER_FRAME = 0.35
 # Resets each time the face is lost and found again.
 FIRST_FIND_EXTEND_ENABLE = True
 FIRST_FIND_EXTEND_FRACTION = 0.25  # first phase stops at 25% of (IK - neutral) on shoulder/elbow
-FIRST_FIND_TO_QUARTER_PER_FRAME = 0.012  # ramp 0→1 over ~83 frames for the quarter reach
-FIRST_FIND_TO_FULL_PER_FRAME = 0.035  # then ramp 25%→100% of IK delta over ~29 frames
+FIRST_FIND_TO_QUARTER_PER_FRAME = 0.02  # ramp 0→1 (~50 frames); was too slow + integer rounding hid motion
+FIRST_FIND_TO_FULL_PER_FRAME = 0.05
 # If vertical error is inside deadband (face near center), still nudge IK so shoulder/elbow have a target.
-FIRST_FIND_MIN_VERTICAL_NORM = 0.12
+FIRST_FIND_MIN_VERTICAL_NORM = 0.18
+# Extra degrees added to IK shoulder/elbow *targets* so first-find always has something to reach toward
+# (IK alone is often still ~neutral when engage was masking error). Flip signs if the arm moves wrong way.
+FIRST_FIND_BIAS_SHOULDER_DEG = 14.0
+FIRST_FIND_BIAS_ELBOW_DEG = -12.0
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.

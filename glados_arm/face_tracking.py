@@ -87,6 +87,28 @@ def _step_toward(cur: float, target: float, max_step: float) -> float:
     return cur + max_step if d > 0 else cur - max_step
 
 
+def _first_find_biased_targets(cmd: ServoCommand, vc: object) -> tuple[int, int]:
+    """IK command + optional bias so shoulder/elbow are not both == neutral when IK is flat."""
+    bs = float(getattr(vc, "FIRST_FIND_BIAS_SHOULDER_DEG", 0.0))
+    be = float(getattr(vc, "FIRST_FIND_BIAS_ELBOW_DEG", 0.0))
+    return int(round(float(cmd.shoulder) + bs)), int(round(float(cmd.elbow) + be))
+
+
+def _servo_deg_toward_ideal(neutral_deg: int, ideal_deg: float) -> int:
+    """
+    Integer servo command from neutral→ideal. Slow ramps use fractional degrees; plain int(round())
+    often stays on neutral for many frames — creep by at least 1° when ideal has diverged.
+    """
+    r = int(round(ideal_deg))
+    if r != neutral_deg:
+        return r
+    if ideal_deg > float(neutral_deg) + 0.08:
+        return neutral_deg + 1
+    if ideal_deg < float(neutral_deg) - 0.08:
+        return neutral_deg - 1
+    return neutral_deg
+
+
 def _apply_first_find_extend(
     cmd: ServoCommand,
     phase: str,
@@ -98,6 +120,7 @@ def _apply_first_find_extend(
     Base and wrist follow the current command unchanged.
     """
     nu = _neutral_command()
+    t_sh, t_el = _first_find_biased_targets(cmd, vc)
     ef = float(getattr(vc, "FIRST_FIND_EXTEND_FRACTION", 0.25))
     ef = max(0.0, min(1.0, ef))
     pq = max(1e-6, float(getattr(vc, "FIRST_FIND_TO_QUARTER_PER_FRAME", 0.012)))
@@ -108,8 +131,10 @@ def _apply_first_find_extend(
     if phase == "to_quarter":
         ramp = min(1.0, ramp + pq)
         fac = ef * ramp
-        sh = int(round(nu.shoulder + fac * (cmd.shoulder - nu.shoulder)))
-        el = int(round(nu.elbow + fac * (cmd.elbow - nu.elbow)))
+        ideal_sh = float(nu.shoulder) + fac * (float(t_sh) - float(nu.shoulder))
+        ideal_el = float(nu.elbow) + fac * (float(t_el) - float(nu.elbow))
+        sh = _servo_deg_toward_ideal(nu.shoulder, ideal_sh)
+        el = _servo_deg_toward_ideal(nu.elbow, ideal_el)
         out = ServoCommand(wrist=cmd.wrist, elbow=el, base=cmd.base, shoulder=sh)
         out, _ = clamp_servo(out)
         if ramp >= 1.0 - 1e-9:
@@ -118,8 +143,10 @@ def _apply_first_find_extend(
     if phase == "to_full":
         ramp = min(1.0, ramp + pf)
         factor = ef + (1.0 - ef) * ramp
-        sh = int(round(nu.shoulder + factor * (cmd.shoulder - nu.shoulder)))
-        el = int(round(nu.elbow + factor * (cmd.elbow - nu.elbow)))
+        ideal_sh = float(nu.shoulder) + factor * (float(t_sh) - float(nu.shoulder))
+        ideal_el = float(nu.elbow) + factor * (float(t_el) - float(nu.elbow))
+        sh = _servo_deg_toward_ideal(nu.shoulder, ideal_sh)
+        el = _servo_deg_toward_ideal(nu.elbow, ideal_el)
         out = ServoCommand(wrist=cmd.wrist, elbow=el, base=cmd.base, shoulder=sh)
         out, _ = clamp_servo(out)
         if ramp >= 1.0 - 1e-9:

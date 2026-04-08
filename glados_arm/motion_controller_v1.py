@@ -171,6 +171,13 @@ class MotionControllerV1:
         vc = self._vc
         shoulder_dist_assist_deg = 0
         max_base_step = float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08))
+        # First-lock overshoot guard: limit yaw step on initial acquisition and ramp to full cap.
+        lock_frames = max(0, int(getattr(vc, "BASE_FIRST_LOCK_STEP_FRAMES", 10)))
+        lock_scale = clamp(float(getattr(vc, "BASE_FIRST_LOCK_STEP_SCALE", 0.45)), 0.05, 1.0)
+        if lock_frames > 0 and self.face_lock_frames < lock_frames:
+            u = float(self.face_lock_frames) / float(lock_frames)
+            step_scale = lock_scale + (1.0 - lock_scale) * clamp(u, 0.0, 1.0)
+            max_base_step *= step_scale
         x_ctrl_mode = str(getattr(vc, "BASE_X_CTRL_MODE", "p")).strip().lower()
         if x_ctrl_mode == "pid":
             e = float(vc.SIGN_ERROR_X_BASE) * corr_x_ctrl

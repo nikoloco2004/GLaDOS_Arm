@@ -103,6 +103,9 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.030
+# First-lock anti-overshoot: cap base yaw step on initial face acquisition, then ramp up.
+BASE_FIRST_LOCK_STEP_FRAMES = 12
+BASE_FIRST_LOCK_STEP_SCALE = 0.30
 MAX_Z_STEP_MM = 1.05
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.30

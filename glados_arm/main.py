@@ -19,6 +19,7 @@ from .controller import (
     solve_vertical_plane,
 )
 from .mapping import ModelJointState, ServoCommand, clamp_servo, model_to_servo, servo_to_model
+from .motion_smooth import lowpass_scalar, rate_limit_servo_deg_per_sec
 from .serial_comm import ArmSerial
 
 
@@ -343,6 +344,27 @@ def _wrist_stab_pitch_rad(
     return desired - (fk.theta1_abs + fk.theta2_abs) - mount - kg * base_yaw_rad
 
 
+def _wrist_stab_pitch_rad_delta_neutral(
+    q_shoulder_rad: float,
+    q_elbow_rad: float,
+    base_yaw_rad: float,
+    mv1: object,
+) -> float:
+    """
+    Level reference = **neutral model pose** (q_shoulder=q_elbow=0): camera level with wrist at
+    model zero. Compensate only the **change** in shoulder+elbow link pitch from that pose:
+    q_wrist = desired - (sum_cur - sum_neutral) - mount - kg*base, so q_wrist=0 at neutral.
+    """
+    fk0 = kinematics.forward_kinematics(0.0, 0.0)
+    fk = kinematics.forward_kinematics(q_shoulder_rad, q_elbow_rad)
+    s0 = fk0.theta1_abs + fk0.theta2_abs
+    s1 = fk.theta1_abs + fk.theta2_abs
+    desired = float(getattr(mv1, "DESIRED_CAMERA_PITCH_RAD", 0.0))
+    mount = float(getattr(mv1, "CAMERA_MOUNT_OFFSET_RAD", 0.0))
+    kg = float(getattr(mv1, "BASE_YAW_COUPLING_GAIN", 0.0))
+    return desired - (s1 - s0) - mount - kg * base_yaw_rad
+
+
 def _solve_vertical_with_optional_wrist_stab(
     x_mm: float,
     z_mm: float,
@@ -350,6 +372,7 @@ def _solve_vertical_with_optional_wrist_stab(
     prefer: str,
     mv1: object,
     wrist_stab: bool,
+    wrist_stab_mode: str = "absolute",
 ) -> VerticalSolveResult:
     """Planar IK, then optional second solve with q_wrist from stab (IK unchanged)."""
     r0 = solve_vertical_plane(
@@ -361,12 +384,20 @@ def _solve_vertical_with_optional_wrist_stab(
     )
     if not r0.ik.ok or not wrist_stab:
         return r0
-    qw = _wrist_stab_pitch_rad(
-        r0.model.q_shoulder_rad,
-        r0.model.q_elbow_rad,
-        base_yaw_rad,
-        mv1,
-    )
+    if wrist_stab_mode == "delta_neutral":
+        qw = _wrist_stab_pitch_rad_delta_neutral(
+            r0.model.q_shoulder_rad,
+            r0.model.q_elbow_rad,
+            base_yaw_rad,
+            mv1,
+        )
+    else:
+        qw = _wrist_stab_pitch_rad(
+            r0.model.q_shoulder_rad,
+            r0.model.q_elbow_rad,
+            base_yaw_rad,
+            mv1,
+        )
     return solve_vertical_plane(
         x_mm=x_mm,
         z_mm=z_mm,
@@ -374,6 +405,71 @@ def _solve_vertical_with_optional_wrist_stab(
         q_wrist_rad=qw,
         prefer=prefer,
     )
+
+
+def _scan_max_z_coarse_then_binary(
+    x0: float,
+    z0: float,
+    yaw_fixed: float,
+    z_max_env: float,
+    scan_mm: float,
+    prefer: str,
+    vc: object,
+) -> float:
+    """Find maximum feasible z at fixed x (IK with q_wrist=0); coarse scan then binary refine."""
+    z_top = z0
+    z_scan = z0 + scan_mm
+    while z_scan <= z_max_env + 1e-6:
+        xc, zc, yc = _clamp_ik_target(x0, z_scan, yaw_fixed, vc)
+        r = solve_vertical_plane(
+            x_mm=xc,
+            z_mm=zc,
+            base_yaw_rad=yc,
+            q_wrist_rad=0.0,
+            prefer=prefer,
+        )
+        if not r.ik.ok:
+            break
+        z_top = zc
+        z_scan += scan_mm
+    # Refine between last OK and first fail (bracket within one coarse step)
+    lo = z_top
+    hi = min(z_top + scan_mm, z_max_env)
+    if hi <= lo + 1e-4:
+        return z_top
+    for _ in range(16):
+        mid = 0.5 * (lo + hi)
+        xc, zc, yc = _clamp_ik_target(x0, mid, yaw_fixed, vc)
+        r = solve_vertical_plane(
+            x_mm=xc,
+            z_mm=zc,
+            base_yaw_rad=yc,
+            q_wrist_rad=0.0,
+            prefer=prefer,
+        )
+        if r.ik.ok:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def _smooth_servo_toward(
+    prev: ServoCommand,
+    target: ServoCommand,
+    dt: float,
+    mv1: object,
+) -> ServoCommand:
+    """Match MotionControllerV1: LPF then deg/s rate limit."""
+    alpha = float(getattr(mv1, "COMMAND_LPF_ALPHA", 0.35))
+    max_dps = getattr(mv1, "MAX_JOINT_DPS", (120.0, 90.0, 60.0, 75.0))
+    smoothed = ServoCommand(
+        wrist=int(round(lowpass_scalar(float(prev.wrist), float(target.wrist), alpha))),
+        elbow=int(round(lowpass_scalar(float(prev.elbow), float(target.elbow), alpha))),
+        base=int(round(lowpass_scalar(float(prev.base), float(target.base), alpha))),
+        shoulder=int(round(lowpass_scalar(float(prev.shoulder), float(target.shoulder), alpha))),
+    )
+    return rate_limit_servo_deg_per_sec(prev, smoothed, dt, max_dps)
 
 
 def _vertical_path_zs(z0: float, z_top: float, step_mm: float, return_down: bool) -> list[float]:
@@ -623,13 +719,17 @@ def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
 
 def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     """
-    From firmware NEUTRAL (model q=0 at FK(0,0) tip): move tip in a straight vertical line in
-    the kinematic plane (fixed x, fixed base yaw). Optionally apply wrist stabilization so the
-    camera stays level (same math as face-tracking WRIST_TRIM_MODE=stab).
+    From firmware NEUTRAL: straight vertical line in the (x,z) plane (fixed x, base yaw 0).
 
-    Calibration fact (this install): **wrist at NEUTRAL_WRIST with the arm at neutral is level and
-    facing forward.** Wrist stab preserves that as shoulder/elbow lift the tip; use --no-wrist-stab
-    to keep wrist fixed at model zero (no compensation while moving).
+    Default **smooth** mode: time-based interpolation z0->z_max with IK targets every frame,
+    COMMAND_LPF_ALPHA + MAX_JOINT_DPS (motion_config_v1) so all joints move together.
+
+    Wrist uses **delta_neutral** stab: level reference is neutral (q=0); q_wrist tracks the
+    change in link pitch from that pose. Stab reads shoulder/elbow from the **previous
+    commanded** servos so wrist stays tied to the smoothed arm motion (not a fixed angle from
+    ideal IK while joints lag).
+
+    Use --discrete for the older stepped path (large z steps, hold at each pose).
     """
     import time
 
@@ -637,11 +737,16 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     from . import vision_config as vc
 
     prefer = args.prefer
+    discrete = bool(args.discrete)
     delay = max(0.1, float(args.delay_s))
     step_mm = max(0.5, float(args.step_mm))
-    scan_mm = max(0.25, float(args.scan_mm))
+    scan_mm = max(0.15, float(args.scan_mm))
     yaw_fixed = 0.0
     wrist_stab = bool(args.wrist_stab)
+    hz = max(5.0, float(args.hz))
+    duration_up = max(0.5, float(args.duration_up))
+    duration_down = float(args.duration_up) if args.duration_down is None else float(args.duration_down)
+    dt = 1.0 / hz
 
     fk0 = kinematics.forward_kinematics(0.0, 0.0)
     x0 = float(args.x_mm) if args.x_mm is not None else float(fk0.tip.x)
@@ -650,34 +755,9 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     x0, z0, yaw_fixed = _clamp_ik_target(x0, z0, yaw_fixed, vc)
 
     z_max_env = float(getattr(vc, "TARGET_Z_MAX_MM", 170.0))
+    z_top = _scan_max_z_coarse_then_binary(x0, z0, yaw_fixed, z_max_env, scan_mm, prefer, vc)
 
-    z_top = z0
-    z_scan = z0 + scan_mm
-    while z_scan <= z_max_env + 1e-6:
-        xc, zc, yc = _clamp_ik_target(x0, z_scan, yaw_fixed, vc)
-        r = solve_vertical_plane(
-            x_mm=xc,
-            z_mm=zc,
-            base_yaw_rad=yc,
-            q_wrist_rad=0.0,
-            prefer=prefer,
-        )
-        if not r.ik.ok:
-            break
-        z_top = zc
-        z_scan += scan_mm
-
-    zs_path = _vertical_path_zs(z0, z_top, step_mm, bool(args.return_down))
-
-    print("Raise camera: neutral tip -> Cartesian +z line; base yaw fixed (no pan).")
-    print(
-        f"FK(0,0) tip x={fk0.tip.x:.2f} z={fk0.tip.z:.2f} mm | path x={x0:.1f} mm "
-        f"pull_back={float(args.pull_back_mm):.1f} mm | wrist_stab={wrist_stab} | prefer={prefer}"
-    )
-    print(
-        f"z_top={z_top:.2f} mm (env z_max={z_max_env:.1f}) | steps={len(zs_path)} "
-        f"step={step_mm:.1f} mm delay={delay:.2f} s"
-    )
+    wmode = "delta_neutral" if wrist_stab else "absolute"
 
     def _fmt_line(r: VerticalSolveResult, zq: float, idx: str) -> str:
         clipped = ",".join(r.clip_notes) if r.clip_notes else "none"
@@ -689,33 +769,165 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
             f"servo=({r.servo_clamped.wrist},{r.servo_clamped.elbow},{r.servo_clamped.base},{r.servo_clamped.shoulder})"
         )
 
-    def _solve_at_z(zq: float) -> VerticalSolveResult:
+    def _solve_at_z(zq: float, prev_cmd: ServoCommand) -> VerticalSolveResult:
+        """
+        Planar IK at z, then wrist.
+
+        For delta_neutral stab: q_wrist cancels link pitch **relative to neutral** using the
+        **actual** shoulder/elbow pose implied by prev_cmd (smoothed command). That matches how
+        IK couples joints: wrist tracks the moving links instead of holding one angle computed
+        from the ideal IK target while shoulder/elbow lag behind the LPF.
+        """
         xc, zc, yc = _clamp_ik_target(x0, zq, yaw_fixed, vc)
+        r0 = solve_vertical_plane(
+            x_mm=xc,
+            z_mm=zc,
+            base_yaw_rad=yc,
+            q_wrist_rad=0.0,
+            prefer=prefer,
+        )
+        if not r0.ik.ok or not wrist_stab:
+            return r0
+        if wmode == "delta_neutral":
+            m_act = servo_to_model(prev_cmd)
+            qw = _wrist_stab_pitch_rad_delta_neutral(
+                m_act.q_shoulder_rad, m_act.q_elbow_rad, yc, mv1
+            )
+            m = ModelJointState(
+                base_yaw_rad=r0.model.base_yaw_rad,
+                q_shoulder_rad=r0.model.q_shoulder_rad,
+                q_elbow_rad=r0.model.q_elbow_rad,
+                q_wrist_rad=qw,
+            )
+            raw = model_to_servo(m)
+            cl, notes = clamp_servo(raw)
+            ok = len(notes) == 0
+            return VerticalSolveResult(
+                ok=ok and r0.ik.ok,
+                ik=r0.ik,
+                model=m,
+                servo_raw=raw,
+                servo_clamped=cl,
+                clip_notes=notes,
+                message=("ok" if ok else "servo_limits_clipped:" + ",".join(notes)),
+            )
         return _solve_vertical_with_optional_wrist_stab(
             xc,
             zc,
             yc,
             prefer,
             mv1,
-            wrist_stab,
+            True,
+            wrist_stab_mode="absolute",
+        )
+
+    print("Raise camera: neutral tip -> Cartesian +z; base yaw fixed; wrist=delta-from-neutral stab.")
+    print(
+        f"FK(0,0) tip x={fk0.tip.x:.2f} z={fk0.tip.z:.2f} mm | x={x0:.1f} mm "
+        f"pull_back={float(args.pull_back_mm):.1f} mm | wrist_stab={wrist_stab} ({wmode}) | prefer={prefer}"
+    )
+    print(f"z_top={z_top:.3f} mm (refined; env z_max={z_max_env:.1f})")
+
+    if not discrete:
+        n_up = max(2, int(math.ceil(duration_up * hz)))
+        n_dn = max(2, int(math.ceil(duration_down * hz))) if bool(args.return_down) else 0
+        total_frames = n_up + (n_dn - 1 if n_dn > 1 and bool(args.return_down) else 0)
+        print(
+            f"smooth: hz={hz:.1f} dt={dt*1000:.1f}ms | up {duration_up:.1f}s ({n_up} frames) "
+            f"{'+ down ' + str(round(duration_down, 1)) + 's' if bool(args.return_down) else ''} "
+            f"| LPF alpha={float(getattr(mv1, 'COMMAND_LPF_ALPHA', 0.35))} MAX_JOINT_DPS={getattr(mv1, 'MAX_JOINT_DPS', ())}"
+        )
+    else:
+        zs_path = _vertical_path_zs(z0, z_top, step_mm, bool(args.return_down))
+        print(
+            f"discrete: steps={len(zs_path)} step={step_mm:.1f} mm delay={delay:.2f} s "
+            f"(use default smooth mode for simultaneous joint motion)"
         )
 
     if z_top > z0 + 1e-6:
-        r_start = _solve_at_z(z0)
-        rp = _solve_at_z(z0 + 0.5 * (z_top - z0))
+        xc0, zc0, yc0 = _clamp_ik_target(x0, z0, yaw_fixed, vc)
+        r_start = solve_vertical_plane(
+            x_mm=xc0,
+            z_mm=zc0,
+            base_yaw_rad=yc0,
+            q_wrist_rad=0.0,
+            prefer=prefer,
+        )
+        zmid = z0 + 0.5 * (z_top - z0)
+        xc1, zc1, yc1 = _clamp_ik_target(x0, zmid, yaw_fixed, vc)
+        rp = solve_vertical_plane(
+            x_mm=xc1,
+            z_mm=zc1,
+            base_yaw_rad=yc1,
+            q_wrist_rad=0.0,
+            prefer=prefer,
+        )
         if (
             "clipped_shoulder_min" in rp.clip_notes
             and rp.servo_raw.shoulder < float(config.NEUTRAL_SHOULDER)
             and r_start.servo_raw.shoulder <= 0
         ):
             print(
-                "NOTE: Mid-path shoulder may clamp at min; elbow does most lift from this neutral. "
-                "Try --pull-back-mm if you need more shoulder range."
+                "NOTE: Mid-path shoulder may clamp at min; try --pull-back-mm for more shoulder range."
             )
 
+    def _run_smooth_segment(
+        z_a: float,
+        z_b: float,
+        n_frames: int,
+        prev_cmd: ServoCommand,
+        print_samples: bool,
+        label: str,
+        controller: RobotController | None,
+    ) -> ServoCommand:
+        """Interpolate z; IK + wrist each frame; LPF + rate limit; optional serial send."""
+        cmd = prev_cmd
+        for i in range(n_frames + 1):
+            t = i / float(max(1, n_frames))
+            zq = z_a + t * (z_b - z_a)
+            r = _solve_at_z(zq, cmd)
+            if not r.ik.ok:
+                print(f"ABORT: IK failed at z={zq:.2f} ({label})", file=sys.stderr)
+                raise RuntimeError("ik_fail")
+            tgt = r.servo_clamped
+            if i == n_frames:
+                cmd = tgt
+            else:
+                cmd = _smooth_servo_toward(cmd, tgt, dt, mv1)
+            if controller is not None:
+                controller.send_servo(cmd)
+                time.sleep(dt)
+            if print_samples and (
+                i == 0
+                or i == n_frames
+                or (n_frames > 8 and i % max(1, n_frames // 8) == 0)
+            ):
+                print(_fmt_line(r, zq, f"{label} {i}/{n_frames}"))
+        return cmd
+
+    neutral_cmd = ServoCommand(
+        wrist=config.NEUTRAL_WRIST,
+        elbow=config.NEUTRAL_ELBOW,
+        base=config.NEUTRAL_BASE,
+        shoulder=config.NEUTRAL_SHOULDER,
+    )
+
     if args.dry_run:
-        for i, zq in enumerate(zs_path):
-            print(_fmt_line(_solve_at_z(zq), zq, f"{i+1:03d}"))
+        if discrete:
+            cmd_dr = neutral_cmd
+            for i, zq in enumerate(_vertical_path_zs(z0, z_top, step_mm, bool(args.return_down))):
+                r = _solve_at_z(zq, cmd_dr)
+                print(_fmt_line(r, zq, f"{i+1:03d}"))
+                cmd_dr = r.servo_clamped
+        else:
+            try:
+                n_up = max(2, int(math.ceil(duration_up * hz)))
+                cmd = _run_smooth_segment(z0, z_top, n_up, neutral_cmd, True, "up", None)
+                if bool(args.return_down):
+                    n_dn = max(2, int(math.ceil(duration_down * hz)))
+                    _run_smooth_segment(z_top, z0, n_dn, cmd, True, "dn", None)
+            except RuntimeError:
+                return 2
         print("dry-run: no serial motion.")
         return 0
 
@@ -726,23 +938,37 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
         if not controller.ping():
             print("PING failed - check USB port and firmware.", file=sys.stderr)
             return 1
-        print("PING ok. Sending NEUTRAL (firmware pose = model q=0)…")
+        print("PING ok. Sending NEUTRAL…")
         controller.neutral()
-        time.sleep(max(0.25, delay * 0.5))
+        time.sleep(0.3)
 
-        for i, zq in enumerate(zs_path):
-            r = _solve_at_z(zq)
-            print(_fmt_line(r, zq, f"{i+1:03d}/{len(zs_path)}"))
-            if not r.ik.ok:
-                print("ABORT: IK failed mid-path.", file=sys.stderr)
+        if discrete:
+            zs_path = _vertical_path_zs(z0, z_top, step_mm, bool(args.return_down))
+            cmd = neutral_cmd
+            for i, zq in enumerate(zs_path):
+                r = _solve_at_z(zq, cmd)
+                print(_fmt_line(r, zq, f"{i+1:03d}/{len(zs_path)}"))
+                if not r.ik.ok:
+                    print("ABORT: IK failed mid-path.", file=sys.stderr)
+                    controller.neutral()
+                    return 2
+                cmd = _smooth_servo_toward(cmd, r.servo_clamped, max(dt, delay * 0.5), mv1)
+                controller.send_servo(cmd)
+                time.sleep(delay)
+        else:
+            n_up = max(2, int(math.ceil(duration_up * hz)))
+            try:
+                cmd = _run_smooth_segment(z0, z_top, n_up, neutral_cmd, True, "up", controller)
+                if bool(args.return_down):
+                    n_dn = max(2, int(math.ceil(duration_down * hz)))
+                    cmd = _run_smooth_segment(z_top, z0, n_dn, cmd, True, "dn", controller)
+            except RuntimeError:
                 controller.neutral()
                 return 2
-            controller.send_servo(r.servo_clamped)
-            time.sleep(delay)
 
         print("Returning to NEUTRAL…")
         controller.neutral()
-        time.sleep(max(0.25, delay * 0.5))
+        time.sleep(0.35)
     finally:
         controller.close()
 
@@ -926,19 +1152,42 @@ def build_parser() -> argparse.ArgumentParser:
     rc = sub.add_parser(
         "raise-camera",
         help=(
-            "slow vertical line from NEUTRAL: fixed x + base yaw, +z; wrist stab keeps camera level "
-            "(neutral wrist = level/forward at rest; stab preserves that while links move)"
+            "vertical line from NEUTRAL: smooth IK (default) with LPF+rate limits; wrist=delta-from-neutral stab; "
+            "binary-refined max z. Use --discrete for stepped motion."
         ),
     )
     rc.add_argument("--port", default=config.SERIAL_DEFAULT_PORT)
     rc.add_argument(
+        "--discrete",
+        action="store_true",
+        help="stepped z waypoints + delay-s (old behavior); default is smooth timed motion",
+    )
+    rc.add_argument(
+        "--hz",
+        type=float,
+        default=30.0,
+        help="control rate for smooth mode (default: 30)",
+    )
+    rc.add_argument(
+        "--duration-up",
+        type=float,
+        default=14.0,
+        help="seconds to interpolate z0 -> z_top in smooth mode (default: 14)",
+    )
+    rc.add_argument(
+        "--duration-down",
+        type=float,
+        default=None,
+        help="seconds for return z_top -> z0 (default: same as --duration-up)",
+    )
+    rc.add_argument(
         "--delay-s",
         type=float,
         default=0.9,
-        help="seconds between poses (default: 0.9, slower than ik-servo-vertical)",
+        help="only for --discrete: pause between poses (default: 0.9)",
     )
-    rc.add_argument("--step-mm", type=float, default=2.0, help="z interpolation step (default: 2)")
-    rc.add_argument("--scan-mm", type=float, default=0.5, help="coarse scan for z_top (default: 0.5)")
+    rc.add_argument("--step-mm", type=float, default=2.0, help="only --discrete: z step (default: 2)")
+    rc.add_argument("--scan-mm", type=float, default=0.25, help="coarse scan step before binary z_top refine")
     rc.add_argument("--x-mm", type=float, default=None, help="fixed plane x mm (default: FK(0,0) tip x)")
     rc.add_argument(
         "--pull-back-mm",
@@ -957,7 +1206,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--wrist-stab",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="level camera using motion_config_v1 (DESIRED_CAMERA_PITCH_RAD, etc.); use --no-wrist-stab to fix wrist at model 0",
+        help="delta-from-neutral wrist (level ref at neutral); --no-wrist-stab fixes q_wrist=0",
     )
     rc.add_argument("--dry-run", action="store_true")
     rc.set_defaults(func=cmd_raise_camera_line)

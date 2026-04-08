@@ -102,7 +102,9 @@ IK_ACCEPT_CLAMPED = True
 # Keep IK target inside practical workspace envelope.
 TARGET_X_MIN_MM = 100.0
 TARGET_X_MAX_MM = 230.0
-TARGET_Z_MIN_MM = 0.0
+# For this calibration, neutral is already near the vertical lower bound (elbow at max, shoulder at min).
+# Allowing controller z targets below this drives persistent clipped_elbow_max + clipped_shoulder_min.
+TARGET_Z_MIN_MM = 118.0
 TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0

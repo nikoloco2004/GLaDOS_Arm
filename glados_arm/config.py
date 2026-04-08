@@ -38,7 +38,7 @@ SERVO_SHOULDER_MAX = 180
 NEUTRAL_WRIST = 200
 NEUTRAL_ELBOW = 270
 NEUTRAL_BASE = 135
-NEUTRAL_SHOULDER = 0
+NEUTRAL_SHOULDER = 10
 
 # --- Startup pose (degrees) ---
 # Kept equal to neutral so face tracking / IK do not jump to a different "boot" pose.

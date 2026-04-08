@@ -15,6 +15,9 @@
  *   ALL <0-270>                      move all channels to angle
  *   SWEEP <0-4> <min> <max> <step>   sweep one channel
  *   IDENT                            rerun identification sequence
+ *   NEUTRAL                          set known neutral pose (channels 0..4)
+ *   MOUNT_MODE                       alias of NEUTRAL
+ *   FREE                             disable PWM outputs on channels 0..4
  *   STOP                             stop motion (holds current output)
  */
 
@@ -36,10 +39,18 @@ constexpr uint16_t PWM_TICK_MAX = 512;
 
 constexpr uint8_t NUM_CH = 5;
 const uint8_t CH[NUM_CH] = {0, 1, 2, 3, 4};
+// Neutral pose aligned to main firmware mapping:
+// 0=wrist, 1=elbow, 2=shoulder, 3=base, 4=spare
+constexpr int NEUTRAL_CH0 = 200;
+constexpr int NEUTRAL_CH1 = 270;
+constexpr int NEUTRAL_CH2 = 0;
+constexpr int NEUTRAL_CH3 = 135;
+constexpr int NEUTRAL_CH4 = 135;
 
 Adafruit_PWMServoDriver pwm(PCA_ADDR);
 
 static bool stopRequested = false;
+static bool outputsFree = false;
 static unsigned long lastHeartbeatMs = 0;
 
 static int clampAngle(int a) {
@@ -61,8 +72,25 @@ static void setChAngle(uint8_t ch, int deg) {
   pwm.setPWM(ch, 0, angleToTicks(deg));
 }
 
+static void setChFree(uint8_t ch) {
+  if (ch > 15) return;
+  pwm.setPWM(ch, 0, 4096);  // full-off bit
+}
+
 static void moveAll(int deg) {
   for (uint8_t i = 0; i < NUM_CH; ++i) setChAngle(CH[i], deg);
+}
+
+static void moveNeutralPose() {
+  setChAngle(0, NEUTRAL_CH0);
+  setChAngle(1, NEUTRAL_CH1);
+  setChAngle(2, NEUTRAL_CH2);
+  setChAngle(3, NEUTRAL_CH3);
+  setChAngle(4, NEUTRAL_CH4);
+}
+
+static void freeAll() {
+  for (uint8_t i = 0; i < NUM_CH; ++i) setChFree(CH[i]);
 }
 
 static void waitWithStopCheck(unsigned long ms) {
@@ -80,6 +108,10 @@ static void printHelp() {
   Serial.println(F("  ALL <0-270>"));
   Serial.println(F("  SWEEP <0-4> <min> <max> <step>"));
   Serial.println(F("  IDENT"));
+  Serial.println(F("  NEUTRAL"));
+  Serial.println(F("  MOUNT_MODE"));
+  Serial.println(F("  FREE"));
+  Serial.println(F("  STATUS"));
   Serial.println(F("  PING"));
   Serial.println(F("  STOP"));
 }
@@ -152,10 +184,22 @@ void loop() {
         printHelp();
       } else if (strcmp(cmd, "PING") == 0) {
         Serial.println(F("PONG"));
+      } else if (strcmp(cmd, "STATUS") == 0) {
+        Serial.print(F("OK STATUS free_mode="));
+        Serial.println(outputsFree ? F("1") : F("0"));
+      } else if (strcmp(cmd, "FREE") == 0) {
+        outputsFree = true;
+        freeAll();
+        Serial.println(F("OK FREE outputs_disabled"));
+      } else if (strcmp(cmd, "NEUTRAL") == 0 || strcmp(cmd, "MOUNT_MODE") == 0) {
+        outputsFree = false;
+        moveNeutralPose();
+        Serial.println(F("OK NEUTRAL"));
       } else if (strcmp(cmd, "STOP") == 0) {
         stopRequested = true;
         Serial.println(F("OK STOP"));
       } else if (strcmp(cmd, "IDENT") == 0) {
+        outputsFree = false;
         runIdentifySequence();
       } else if (strcmp(cmd, "CH") == 0) {
         char* a = strtok(nullptr, " \t");
@@ -170,6 +214,7 @@ void loop() {
           Serial.println(F("ERR channel must be 0..4"));
           continue;
         }
+        outputsFree = false;
         setChAngle((uint8_t)ch, deg);
         Serial.print(F("OK CH "));
         Serial.print(ch);
@@ -182,6 +227,7 @@ void loop() {
           continue;
         }
         int deg = atoi(a);
+        outputsFree = false;
         moveAll(deg);
         Serial.print(F("OK ALL "));
         Serial.println(clampAngle(deg));
@@ -202,6 +248,7 @@ void loop() {
           Serial.println(F("ERR invalid sweep args"));
           continue;
         }
+        outputsFree = false;
         stopRequested = false;
         if (amin > amax) {
           int t = amin;

@@ -68,6 +68,50 @@ def rate_limit_servo_deg_per_sec(
     return rate_limit_servo_deg(prev, target, max_step_deg=max_step)
 
 
+def sync_step_servo_toward(
+    prev: ServoCommand,
+    target: ServoCommand,
+    dt: float,
+    max_dps: tuple[float, float, float, float],
+) -> ServoCommand:
+    """
+    Move all joints toward target by the same fraction of each joint's remaining error (0..1],
+    capped so no joint exceeds its deg/s limit. Avoids independent LPF per joint (which makes
+    one joint appear to lead when errors differ in servo space).
+    """
+    if dt <= 1e-9:
+        return target
+    pairs = (
+        (float(prev.wrist), float(target.wrist), max_dps[0]),
+        (float(prev.elbow), float(target.elbow), max_dps[1]),
+        (float(prev.base), float(target.base), max_dps[2]),
+        (float(prev.shoulder), float(target.shoulder), max_dps[3]),
+    )
+    max_frac = 1.0
+    for p, t, dps in pairs:
+        d = t - p
+        ad = abs(d)
+        if ad < 1e-9:
+            continue
+        max_frac = min(max_frac, (dps * dt) / ad)
+    if max_frac < 1e-12:
+        return prev
+    p0, t0, _ = pairs[0]
+    p1, t1, _ = pairs[1]
+    p2, t2, _ = pairs[2]
+    p3, t3, _ = pairs[3]
+    nw = p0 + (t0 - p0) * max_frac
+    ne = p1 + (t1 - p1) * max_frac
+    nb = p2 + (t2 - p2) * max_frac
+    ns = p3 + (t3 - p3) * max_frac
+    return ServoCommand(
+        wrist=int(round(nw)),
+        elbow=int(round(ne)),
+        base=int(round(nb)),
+        shoulder=int(round(ns)),
+    )
+
+
 def accel_limit_delta(
     state: JointRateState,
     new_cmd: ServoCommand,

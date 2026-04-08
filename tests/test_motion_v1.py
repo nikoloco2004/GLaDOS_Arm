@@ -5,6 +5,30 @@ from __future__ import annotations
 import unittest
 
 from glados_arm import kinematics
+from glados_arm.mapping import ServoCommand
+from glados_arm.motion_smooth import sync_step_servo_toward
+
+
+class TestSyncStepServoToward(unittest.TestCase):
+    def test_same_fraction_when_one_joint_limits(self) -> None:
+        prev = ServoCommand(wrist=0, elbow=0, base=0, shoulder=0)
+        target = ServoCommand(wrist=0, elbow=100, base=0, shoulder=10)
+        max_dps = (100.0, 50.0, 60.0, 75.0)
+        dt = 0.1
+        out = sync_step_servo_toward(prev, target, dt, max_dps)
+        # Elbow max step 5 -> fraction 0.05; shoulder moves 0.5
+        self.assertEqual(out.elbow, 5)
+        self.assertEqual(out.shoulder, 0)
+
+    def test_full_step_when_within_limits(self) -> None:
+        prev = ServoCommand(wrist=0, elbow=0, base=90, shoulder=0)
+        # Deltas must fit all joints' dps*dt in one frame (shoulder 75 dps -> 7.5 deg / 0.1s)
+        target = ServoCommand(wrist=0, elbow=5, base=90, shoulder=5)
+        max_dps = (120.0, 90.0, 60.0, 75.0)
+        dt = 0.1
+        out = sync_step_servo_toward(prev, target, dt, max_dps)
+        self.assertEqual(out.elbow, 5)
+        self.assertEqual(out.shoulder, 5)
 
 
 class TestIKBranchHysteresis(unittest.TestCase):

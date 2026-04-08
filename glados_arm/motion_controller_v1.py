@@ -126,6 +126,14 @@ class MotionControllerV1:
             base=int(round(lowpass_scalar(float(prev.base), float(cmd.base), alpha))),
             shoulder=int(round(lowpass_scalar(float(prev.shoulder), float(cmd.shoulder), alpha))),
         )
+        wrist_hold_deg = max(0.0, float(getattr(mv, "WRIST_HOLD_BAND_DEG", 0.0)))
+        if abs(float(smoothed.wrist) - float(self.last_valid_cmd.wrist)) <= wrist_hold_deg:
+            smoothed = ServoCommand(
+                wrist=self.last_valid_cmd.wrist,
+                elbow=smoothed.elbow,
+                base=smoothed.base,
+                shoulder=smoothed.shoulder,
+            )
         self._cmd_lpf = smoothed
         wrist_max_dps = float(getattr(mv, "WRIST_MAX_DPS", float(max_dps[0])))
         dps = (wrist_max_dps, float(max_dps[1]), float(max_dps[2]), float(max_dps[3]))

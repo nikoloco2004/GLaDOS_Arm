@@ -53,6 +53,8 @@ COLOR_MODE = "bgr"
 CONTROL_MODE = "ik"
 # Temporary tuning switch: disable all Y/vertical correction so only X->base is active.
 TRACK_DISABLE_Y_AXIS = False
+# Temporary tuning switch: disable all X/base correction so only Y/vertical chain is active.
+TRACK_DISABLE_X_AXIS = False
 
 # IK live-target tuning (used when CONTROL_MODE == "ik")
 # Image X correction (normalized) -> base yaw delta (rad/frame)

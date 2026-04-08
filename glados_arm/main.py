@@ -169,6 +169,7 @@ def cmd_track(args: argparse.Namespace) -> int:
         color_mode=args.color_mode,
         control_mode=args.control_mode,
         disable_y_axis=bool(args.disable_y_axis),
+        disable_x_axis=bool(args.disable_x_axis),
     )
 
 
@@ -1191,6 +1192,7 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--color-mode", choices=("bgr", "rgb"), default=None, help="override camera color order")
     tr.add_argument("--control-mode", choices=("ik", "proportional"), default=None, help="override tracking control strategy")
     tr.add_argument("--disable-y-axis", action="store_true", help="disable vertical/Y correction; tune base only")
+    tr.add_argument("--disable-x-axis", action="store_true", help="disable horizontal/X correction; tune vertical only")
     tr.add_argument("--width", type=int, default=None)
     tr.add_argument("--height", type=int, default=None)
     tr.set_defaults(func=cmd_track)

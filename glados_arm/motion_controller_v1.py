@@ -373,6 +373,29 @@ class MotionControllerV1:
                 cmd, _ = clamp_servo(cmd)
                 self.ik_status = f"{self.ik_status}|lower_bound_wrist_only"
 
+        # Upward monotonic guard:
+        # If Y asks up, never let shoulder command decrease vs last command due to clipped/raw solve.
+        if bool(getattr(vc, "UPWARD_MONOTONIC_GUARD_ENABLE", True)):
+            up_eps = max(0.0, float(getattr(vc, "UPWARD_MONOTONIC_EPS_NORM", 0.03)))
+            if corr_y_ik > up_eps:
+                new_sh = max(int(cmd.shoulder), int(self.last_valid_cmd.shoulder))
+                new_el = int(cmd.elbow)
+                # If still pinned at lower-bound clip pair, force tiny coupled escape.
+                if (
+                    "clipped_elbow_max" in self.ik_clip_notes
+                    and "clipped_shoulder_min" in self.ik_clip_notes
+                ):
+                    step = max(1, int(getattr(vc, "UPWARD_UNSTICK_STEP_DEG", 1)))
+                    new_sh = max(new_sh, int(self.last_valid_cmd.shoulder) + step)
+                    new_el = min(new_el, int(self.last_valid_cmd.elbow) - step)
+                cmd = ServoCommand(
+                    wrist=cmd.wrist,
+                    elbow=new_el,
+                    base=cmd.base,
+                    shoulder=new_sh,
+                )
+                cmd, _ = clamp_servo(cmd)
+
         out = self._hard_clamp_base(self._smooth_and_limit(cmd, vm.t_seconds, dt))
         self.last_valid_cmd = out
         return out

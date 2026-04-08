@@ -159,6 +159,11 @@ ZERR_SIGN_SHOULDER = 1.0
 LOWER_BOUND_WRIST_ONLY_ENABLE = True
 LOWER_BOUND_WRIST_ONLY_MAX_DEG = 20.0
 LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM = 80.0
+# Upward command guard: prevent shoulder from being pulled down when Y requests up;
+# if chain is pinned at (shoulder min, elbow max), force a tiny coupled escape step.
+UPWARD_MONOTONIC_GUARD_ENABLE = True
+UPWARD_MONOTONIC_EPS_NORM = 0.03
+UPWARD_UNSTICK_STEP_DEG = 1
 # Elbow assist in IK mode for vertical compensation.
 TRACK_ELBOW_ASSIST_DEG_PER_NORM = 0.8
 TRACK_ELBOW_ASSIST_MAX_DEG = 6

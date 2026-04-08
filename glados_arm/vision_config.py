@@ -30,8 +30,8 @@ SCALERCROP_REAPPLY_EVERY_N_FRAMES = 1
 
 # Downscale width for Haar detection only (speed); full-res frame used for preview & overlay.
 DETECT_MAX_WIDTH = 256
-# Run Haar every N frames and reuse last bbox between detections.
-DETECT_EVERY_N_FRAMES = 2
+# Run Haar every N frames and reuse last bbox between detections (=1 is more stable when the target moves).
+DETECT_EVERY_N_FRAMES = 1
 
 # Picamera2 color mode for raw frames: "bgr" or "rgb".
 # On your stack face looked blue with RGB->BGR conversion, so default to BGR.
@@ -66,11 +66,12 @@ TRACK_Z_MM_PER_NORM = 2.2
 # Vertical Y->Z controller mode: "p" (legacy proportional) or "pid".
 Y_Z_CTRL_MODE = "pid"
 # PID tuning for vertical correction: image Y error -> target_z_mm delta (mm/frame), then clamped by MAX_Z_STEP_MM.
-Y_PID_KP = 0.82
-Y_PID_KI = 0.006
-Y_PID_KD = 0.65
-Y_PID_I_CLAMP = 2.5
-Y_PID_D_ALPHA = 0.50
+# Softer = less overshoot / losing lock when moving vertically.
+Y_PID_KP = 0.48
+Y_PID_KI = 0.0025
+Y_PID_KD = 0.38
+Y_PID_I_CLAMP = 1.8
+Y_PID_D_ALPHA = 0.62
 Y_PID_RESET_ON_LOSS = True
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
@@ -90,9 +91,9 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.052
-MAX_Z_STEP_MM = 0.85
+MAX_Z_STEP_MM = 0.5
 MAX_X_STEP_MM = 3.0
-FACE_CENTER_ALPHA = 0.25
+FACE_CENTER_ALPHA = 0.22
 
 # Distance control from face box size (applies in IK mode).
 # We estimate relative distance from detected face width in pixels:
@@ -136,16 +137,16 @@ ELBOW_MAX_STEP_PER_FRAME_DEG = 1
 ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 2
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
-LOCK_IN_FRAMES = 6
-ENGAGE_UP_PER_FRAME = 0.20
-ENGAGE_DOWN_PER_FRAME = 0.35
+LOCK_IN_FRAMES = 10
+ENGAGE_UP_PER_FRAME = 0.11
+ENGAGE_DOWN_PER_FRAME = 0.28
 
 # First acquisition after no-face: optional slow blend from neutral toward IK (can jerk on re-acquire).
 # On: after no-face, first re-acquire blends shoulder/elbow from neutral toward IK in two slow phases.
 FIRST_FIND_EXTEND_ENABLE = True
-FIRST_FIND_EXTEND_FRACTION = 0.25  # first phase stops at 25% of (IK - neutral) on shoulder/elbow
-FIRST_FIND_TO_QUARTER_PER_FRAME = 0.022
-FIRST_FIND_TO_FULL_PER_FRAME = 0.04
+FIRST_FIND_EXTEND_FRACTION = 0.18  # first phase stops at this fraction of (IK - neutral) on shoulder/elbow
+FIRST_FIND_TO_QUARTER_PER_FRAME = 0.011
+FIRST_FIND_TO_FULL_PER_FRAME = 0.02
 # If vertical error is inside deadband (face near center), still nudge IK so shoulder/elbow have a target.
 FIRST_FIND_MIN_VERTICAL_NORM = 0.12
 # Extra degrees added to IK shoulder/elbow *targets* so first-find always has something to reach toward
@@ -155,12 +156,12 @@ FIRST_FIND_BIAS_ELBOW_DEG = -8.0
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
-TRACK_WRIST_DEG_PER_NORM = 22.0
+TRACK_WRIST_DEG_PER_NORM = 14.0
 TRACK_WRIST_MIN_STEP_DEG = 1
 TRACK_WRIST_MAX_TRIM_DEG = 95
 SIGN_ERROR_Y_WRIST = 1.0  # wrist was correct; only shoulder/elbow use inverted Y sign below
-WRIST_SMOOTH_ALPHA = 0.15
-WRIST_MAX_STEP_PER_FRAME_DEG = 2
+WRIST_SMOOTH_ALPHA = 0.22
+WRIST_MAX_STEP_PER_FRAME_DEG = 1
 
 # When no face is detected, gently settle vertical chain toward neutral so it
 # does not remain "looking up" at the last lock point.
@@ -173,7 +174,7 @@ NO_FACE_ELBOW_RETURN_DEG_PER_FRAME = 4.0
 NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME = 3.0
 
 # Normalized error deadband (0..1) — ignore jitter inside this band
-TRACK_DEADBAND = 0.03
+TRACK_DEADBAND = 0.04
 
 # Adaptive ramping:
 # Start with gentle correction, then ramp up if target stays outside center for multiple frames.

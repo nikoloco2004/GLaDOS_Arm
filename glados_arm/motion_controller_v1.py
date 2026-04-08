@@ -203,6 +203,10 @@ class MotionControllerV1:
                 cross_brake = clamp(float(getattr(vc, "BASE_PID_ZERO_CROSS_BRAKE", 0.45)), 0.0, 1.0)
                 base_step *= cross_brake
                 self.base_zero_cross_hold = max(0, int(getattr(vc, "BASE_PID_ZERO_CROSS_HOLD_FRAMES", 2)))
+            pre_err = float(getattr(vc, "BASE_PID_PREBRAKE_ERROR", 0.26))
+            if abs(e) < pre_err:
+                pre_scale = clamp(float(getattr(vc, "BASE_PID_PREBRAKE_SCALE", 0.55)), 0.0, 1.0)
+                base_step *= pre_scale
             near_err = abs(e) < float(getattr(vc, "BASE_PID_NEAR_ERROR", 0.10))
             if near_err:
                 near_scale = clamp(float(getattr(vc, "BASE_PID_NEAR_STEP_SCALE", 0.35)), 0.0, 1.0)

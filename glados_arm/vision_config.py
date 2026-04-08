@@ -60,19 +60,21 @@ TRACK_BASE_RAD_PER_NORM = 0.09
 # Base X controller mode: "p" (legacy proportional) or "pid".
 BASE_X_CTRL_MODE = "pid"
 # PID tuning for base X (output is radians per frame, then clamped by MAX_BASE_YAW_STEP_RAD).
-BASE_PID_KP = 0.080
+BASE_PID_KP = 0.072
 BASE_PID_KI = 0.0
-BASE_PID_KD = 0.045
+BASE_PID_KD = 0.060
 # Integral clamp (in normalized-error frame-sum units) and derivative smoothing.
 BASE_PID_I_CLAMP = 2.0
 BASE_PID_D_ALPHA = 0.55
 BASE_PID_RESET_ON_LOSS = True
 # Extra damping when error crosses zero (helps remove lingering overshoot).
-BASE_PID_ZERO_CROSS_BRAKE = 0.35
+BASE_PID_ZERO_CROSS_BRAKE = 0.28
 # Two-zone damping near center: keep far response, suppress near-center overshoot.
 BASE_PID_NEAR_ERROR = 0.14
-BASE_PID_NEAR_STEP_SCALE = 0.50
-BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
+BASE_PID_PREBRAKE_ERROR = 0.26
+BASE_PID_PREBRAKE_SCALE = 0.50
+BASE_PID_NEAR_STEP_SCALE = 0.22
+BASE_PID_ZERO_CROSS_HOLD_FRAMES = 2
 # Image Y correction (normalized) -> vertical target z delta (mm/frame) when Y_Z_CTRL_MODE == "p".
 # Direct P on error each frame (no integral windup) — use this instead of PID when vertical feels "zoomy".
 TRACK_Z_MM_PER_NORM = 3.4
@@ -104,8 +106,8 @@ TARGET_Z_MAX_MM = 170.0
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.030
 # First-lock anti-overshoot: cap base yaw step on initial face acquisition, then ramp up.
-BASE_FIRST_LOCK_STEP_FRAMES = 12
-BASE_FIRST_LOCK_STEP_SCALE = 0.30
+BASE_FIRST_LOCK_STEP_FRAMES = 16
+BASE_FIRST_LOCK_STEP_SCALE = 0.18
 MAX_Z_STEP_MM = 1.05
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.30

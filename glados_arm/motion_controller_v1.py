@@ -127,7 +127,11 @@ class MotionControllerV1:
             shoulder=int(round(lowpass_scalar(float(prev.shoulder), float(cmd.shoulder), alpha))),
         )
         wrist_hold_deg = max(0.0, float(getattr(mv, "WRIST_HOLD_BAND_DEG", 0.0)))
-        if abs(float(smoothed.wrist) - float(self.last_valid_cmd.wrist)) <= wrist_hold_deg:
+        wrist_raw_delta = abs(float(cmd.wrist) - float(self.last_valid_cmd.wrist))
+        wrist_smoothed_delta = abs(float(smoothed.wrist) - float(self.last_valid_cmd.wrist))
+        # Apply wrist hold only for genuinely tiny requested moves; do not let it
+        # cancel large commands that are still being low-pass filtered.
+        if wrist_raw_delta <= wrist_hold_deg and wrist_smoothed_delta <= wrist_hold_deg:
             smoothed = ServoCommand(
                 wrist=self.last_valid_cmd.wrist,
                 elbow=smoothed.elbow,

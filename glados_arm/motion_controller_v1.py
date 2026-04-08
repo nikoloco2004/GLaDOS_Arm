@@ -466,6 +466,9 @@ class MotionControllerV1:
             * corr_y_vert
             * float(getattr(vc, "TRACK_WRIST_DEG_PER_NORM", 0.8))
         )
+        wrist_deadband = max(0.0, float(getattr(vc, "TRACK_WRIST_DEADBAND_NORM", 0.0)))
+        if abs(corr_y_vert) < wrist_deadband:
+            wrist_cmd = 0.0
         wrist_trim_deg = int(round(wrist_cmd))
         wrist_min_step = max(0, int(getattr(vc, "TRACK_WRIST_MIN_STEP_DEG", 0)))
         if wrist_trim_deg == 0 and abs(corr_y_vert) > 1e-6 and wrist_min_step > 0:

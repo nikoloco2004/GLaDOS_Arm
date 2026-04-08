@@ -199,8 +199,9 @@ FIRST_FIND_BIAS_ELBOW_DEG = -8.0
 TRACK_WRIST_DEG_PER_NORM = 8.0
 TRACK_WRIST_MIN_STEP_DEG = 0
 TRACK_WRIST_MAX_TRIM_DEG = 95
+TRACK_WRIST_DEADBAND_NORM = 0.06
 SIGN_ERROR_Y_WRIST = 1.0  # wrist was correct; only shoulder/elbow use inverted Y sign below
-WRIST_SMOOTH_ALPHA = 0.20
+WRIST_SMOOTH_ALPHA = 0.14
 WRIST_MAX_STEP_PER_FRAME_DEG = 1
 
 # When no face is detected, gently settle vertical chain toward neutral so it

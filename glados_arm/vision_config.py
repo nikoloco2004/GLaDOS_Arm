@@ -164,7 +164,7 @@ LOWER_BOUND_WRIST_ONLY_DOWN_ZSTEP_EPS_MM = 0.02
 LOWER_BOUND_WRIST_ONLY_DEADBAND_NORM = 0.05
 LOWER_BOUND_WRIST_ONLY_NEAR_NORM = 0.16
 LOWER_BOUND_WRIST_ONLY_NEAR_SCALE = 0.55
-LOWER_BOUND_WRIST_ONLY_MAX_STEP_DEG = 1
+LOWER_BOUND_WRIST_ONLY_MAX_STEP_DEG = 2
 # Prioritize shoulder+elbow ("proximal joints") before wrist during vertical tracking.
 # Wrist command is held until proximal joint deltas are small; keeps wrist from leading.
 VERTICAL_PROXIMAL_FIRST_ENABLE = True

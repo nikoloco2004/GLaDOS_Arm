@@ -129,9 +129,15 @@ class MotionControllerV1:
         wrist_hold_deg = max(0.0, float(getattr(mv, "WRIST_HOLD_BAND_DEG", 0.0)))
         wrist_raw_delta = abs(float(cmd.wrist) - float(self.last_valid_cmd.wrist))
         wrist_smoothed_delta = abs(float(smoothed.wrist) - float(self.last_valid_cmd.wrist))
+        lower_bound_wrist_only_active = "lower_bound_wrist_only" in self.ik_status
         # Apply wrist hold only for genuinely tiny requested moves; do not let it
         # cancel large commands that are still being low-pass filtered.
-        if wrist_raw_delta <= wrist_hold_deg and wrist_smoothed_delta <= wrist_hold_deg:
+        # Also bypass hold entirely while lower-bound wrist takeover is active.
+        if (
+            (not lower_bound_wrist_only_active)
+            and wrist_raw_delta <= wrist_hold_deg
+            and wrist_smoothed_delta <= wrist_hold_deg
+        ):
             smoothed = ServoCommand(
                 wrist=self.last_valid_cmd.wrist,
                 elbow=smoothed.elbow,

@@ -389,7 +389,10 @@ class MotionControllerV1:
             # Use solved z direction (after sign/config) so takeover works regardless of
             # corr_y sign conventions.
             down_eps_mm = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_DOWN_ZSTEP_EPS_MM", 0.02)))
-            wants_down = float(z_step) < -down_eps_mm
+            down_eps_norm = max(
+                0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_DOWN_YFORZ_EPS_NORM", 0.03))
+            )
+            wants_down = (float(z_step) < -down_eps_mm) or (float(self.y_for_z) < -down_eps_norm)
             if wants_down and (at_lower or lower_clip or lower_pinned):
                 max_deg = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_MAX_DEG", 20.0)))
                 gain = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM", 80.0)))

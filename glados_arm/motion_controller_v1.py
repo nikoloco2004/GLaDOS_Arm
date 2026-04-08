@@ -352,6 +352,28 @@ class MotionControllerV1:
             z_step=z_step,
         )
 
+        # At lower vertical bound, avoid driving further down with shoulder/elbow clipping.
+        # Use wrist-only down trim (capped) while holding last shoulder/elbow.
+        if bool(getattr(vc, "LOWER_BOUND_WRIST_ONLY_ENABLE", False)):
+            z_min = float(getattr(vc, "TARGET_Z_MIN_MM", 0.0))
+            at_lower = self.target_z_mm <= z_min + 1e-3
+            lower_clip = (
+                "clipped_elbow_max" in self.ik_clip_notes and "clipped_shoulder_min" in self.ik_clip_notes
+            )
+            if corr_y_ik < 0.0 and (at_lower or lower_clip):
+                max_deg = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_MAX_DEG", 20.0)))
+                gain = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM", 80.0)))
+                down_deg = clamp(abs(corr_y_ik) * gain, 0.0, max_deg)
+                wrist_cmd = int(round(float(config.NEUTRAL_WRIST) - down_deg))
+                cmd = ServoCommand(
+                    wrist=wrist_cmd,
+                    elbow=self.last_valid_cmd.elbow,
+                    base=cmd.base,
+                    shoulder=self.last_valid_cmd.shoulder,
+                )
+                cmd, _ = clamp_servo(cmd)
+                self.ik_status = f"{self.ik_status}|lower_bound_wrist_only"
+
         out = self._hard_clamp_base(self._smooth_and_limit(cmd, vm.t_seconds, dt))
         self.last_valid_cmd = out
         return out

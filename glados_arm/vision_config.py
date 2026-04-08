@@ -155,6 +155,11 @@ ZERR_SHOULDER_ASSIST_ENABLE = True
 ZERR_SHOULDER_DEG_PER_MM = 0.07
 ZERR_SHOULDER_MAX_DEG = 10
 ZERR_SIGN_SHOULDER = 1.0
+# Lower-bound behavior: if Y asks "down" while vertical chain is at its lower bound,
+# keep shoulder/elbow steady and use wrist-only downward trim.
+LOWER_BOUND_WRIST_ONLY_ENABLE = True
+LOWER_BOUND_WRIST_ONLY_MAX_DEG = 20.0
+LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM = 80.0
 # Elbow assist in IK mode for vertical compensation.
 TRACK_ELBOW_ASSIST_DEG_PER_NORM = 1.7
 TRACK_ELBOW_ASSIST_MAX_DEG = 10

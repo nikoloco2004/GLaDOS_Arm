@@ -396,6 +396,31 @@ class MotionControllerV1:
                 )
                 cmd, _ = clamp_servo(cmd)
 
+        # Proximal-first vertical motion: keep wrist from leading while shoulder/elbow
+        # are still moving toward the new IK target. This makes the chain "lift first"
+        # and wrist follow after proximal joints settle.
+        if bool(getattr(vc, "VERTICAL_PROXIMAL_FIRST_ENABLE", True)):
+            shoulder_thresh = max(
+                0.0, float(getattr(vc, "VERTICAL_PROXIMAL_FIRST_SHOULDER_THRESH_DEG", 1.0))
+            )
+            elbow_thresh = max(
+                0.0, float(getattr(vc, "VERTICAL_PROXIMAL_FIRST_ELBOW_THRESH_DEG", 1.0))
+            )
+            shoulder_delta = abs(float(cmd.shoulder) - float(self.last_valid_cmd.shoulder))
+            elbow_delta = abs(float(cmd.elbow) - float(self.last_valid_cmd.elbow))
+            lower_bound_wrist_only_active = "lower_bound_wrist_only" in self.ik_status
+            if (
+                not lower_bound_wrist_only_active
+                and (shoulder_delta > shoulder_thresh or elbow_delta > elbow_thresh)
+            ):
+                cmd = ServoCommand(
+                    wrist=self.last_valid_cmd.wrist,
+                    elbow=cmd.elbow,
+                    base=cmd.base,
+                    shoulder=cmd.shoulder,
+                )
+                cmd, _ = clamp_servo(cmd)
+
         out = self._hard_clamp_base(self._smooth_and_limit(cmd, vm.t_seconds, dt))
         self.last_valid_cmd = out
         return out

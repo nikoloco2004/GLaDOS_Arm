@@ -135,6 +135,10 @@ Use a venv if you prefer: `python -m venv .venv` then `source .venv/bin/activate
 
 Arduino servo order: **1=wrist, 2=elbow, 3=base, 4=shoulder**.
 
+### Tuning V1 face tracking (smooth motion)
+
+Phased checklist for on-robot tuning: **[`docs/MOTION_TUNING.md`](docs/MOTION_TUNING.md)**. Tune **`glados_arm/vision_config.py`** (image → targets) before **`glados_arm/motion_config_v1.py`** (rate limits, LPF, wrist stabilization). Validate with `python -m unittest discover -s tests -p "test_*.py"`.
+
 ---
 
 ## 2. Coordinate system

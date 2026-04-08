@@ -384,6 +384,11 @@ def run_tracking(
     y_vert_prev_e = 0.0
     y_vert_d = 0.0
     y_vert_out_deg = 0.0
+    # Tandem PID outputs fractional deg/frame; int(round(ratio)) often == 0. Carry remainder so
+    # shoulder/elbow/wrist still move when the command is small.
+    tandem_sh_rem = 0.0
+    tandem_el_rem = 0.0
+    tandem_wr_rem = 0.0
     prev_had_face = False
     first_find_phase = "idle"
     first_find_ramp = 0.0
@@ -703,11 +708,20 @@ def run_tracking(
                             elbow_scale = (fb_el / fb_sh) if abs(fb_sh) > 1e-6 else -1.0
                         else:
                             elbow_scale = 1.0
-                        wt = int(round(y_vert_out_deg * rw))
-                        d_sh_y = int(round(y_vert_out_deg * rs))
-                        d_el_y = int(round(y_vert_out_deg * re * elbow_scale * elbow_sign))
+                        f_wr = float(y_vert_out_deg * rw)
+                        f_sh = float(y_vert_out_deg * rs)
+                        f_el = float(y_vert_out_deg * re * elbow_scale * elbow_sign)
+                        tandem_sh_rem += f_sh
+                        tandem_el_rem += f_el
+                        tandem_wr_rem += f_wr
+                        d_sh_y = int(round(tandem_sh_rem))
+                        tandem_sh_rem -= float(d_sh_y)
+                        d_el_y = int(round(tandem_el_rem))
+                        tandem_el_rem -= float(d_el_y)
+                        wt_raw = int(round(tandem_wr_rem))
                         wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
-                        wt = max(-wrist_max_trim, min(wrist_max_trim, wt))
+                        wt = max(-wrist_max_trim, min(wrist_max_trim, wt_raw))
+                        tandem_wr_rem -= float(wt)
                         wrist_trim_deg = wt
                     elif y_ctrl_mode == "pid":
                         ykp = float(getattr(vc, "Y_PID_KP", 1.8))
@@ -1046,6 +1060,9 @@ def run_tracking(
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
             else:
+                tandem_sh_rem = 0.0
+                tandem_el_rem = 0.0
+                tandem_wr_rem = 0.0
                 first_find_phase = "idle"
                 first_find_ramp = 0.0
                 face_lock_frames = 0

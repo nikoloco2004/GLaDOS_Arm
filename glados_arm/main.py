@@ -5,6 +5,7 @@ CLI for servo debug, model mapping test, FK/IK checks, and optional serial send.
 from __future__ import annotations
 
 import argparse
+import bisect
 import math
 import sys
 from collections import Counter
@@ -472,6 +473,83 @@ def _smooth_servo_toward(
     return rate_limit_servo_deg_per_sec(prev, smoothed, dt, max_dps)
 
 
+def _raise_camera_interp_z_for_cost(cost_target: float, costs: list[float], z_grid: list[float]) -> float:
+    """Linearly interpolate z for a target cumulative joint-space cost along a sampled path."""
+    if not costs or not z_grid or len(costs) != len(z_grid):
+        return z_grid[0] if z_grid else 0.0
+    if cost_target <= costs[0]:
+        return z_grid[0]
+    if cost_target >= costs[-1]:
+        return z_grid[-1]
+    i = bisect.bisect_right(costs, cost_target) - 1
+    i = max(0, min(i, len(costs) - 2))
+    c0, c1 = costs[i], costs[i + 1]
+    z0, z1 = z_grid[i], z_grid[i + 1]
+    if c1 <= c0 + 1e-12:
+        return z1
+    w = (cost_target - c0) / (c1 - c0)
+    return z0 + w * (z1 - z0)
+
+
+def _raise_camera_build_arc_cost_grid(
+    z_a: float,
+    z_b: float,
+    seg_start_cmd: ServoCommand,
+    solve_fn,
+    k_fine: int,
+) -> tuple[list[float], list[float]]:
+    """
+    Walk z_a→z_b in uniform z samples; cumulative cost = sum of max |Δservo| between consecutive
+    ideal poses (same wrist feedback chain as runtime). Used to re-time z(t) so motion is even
+    in joint space (linear z in time causes joint speed to spike near workspace limits).
+    """
+    k_fine = max(3, min(400, k_fine))
+    z_grid: list[float] = [z_a]
+    costs: list[float] = [0.0]
+    r_a = solve_fn(z_a, seg_start_cmd)
+    cmd_prev = r_a.servo_clamped
+    for j in range(1, k_fine):
+        t = j / float(k_fine - 1)
+        zq = z_a + t * (z_b - z_a)
+        r = solve_fn(zq, cmd_prev)
+        cmd = r.servo_clamped
+        delta = max(
+            abs(cmd.wrist - cmd_prev.wrist),
+            abs(cmd.elbow - cmd_prev.elbow),
+            abs(cmd.base - cmd_prev.base),
+            abs(cmd.shoulder - cmd_prev.shoulder),
+        )
+        costs.append(costs[-1] + max(delta, 1e-3))
+        z_grid.append(zq)
+        cmd_prev = cmd
+    return costs, z_grid
+
+
+def _raise_camera_arc_z_schedule(
+    z_a: float,
+    z_b: float,
+    seg_start_cmd: ServoCommand,
+    solve_fn,
+    n_frames: int,
+    k_fine: int,
+) -> list[float]:
+    """One z sample per frame index 0..n_frames; uniform progress in cumulative joint cost."""
+    costs, z_grid = _raise_camera_build_arc_cost_grid(z_a, z_b, seg_start_cmd, solve_fn, k_fine)
+    total = costs[-1]
+    if total < 1e-6:
+        return [z_a + (z_b - z_a) * (i / float(max(1, n_frames))) for i in range(n_frames + 1)]
+    out: list[float] = []
+    for i in range(n_frames + 1):
+        u = i / float(max(1, n_frames))
+        ct = u * total
+        out.append(_raise_camera_interp_z_for_cost(ct, costs, z_grid))
+    return out
+
+
+def _raise_camera_linear_z_schedule(z_a: float, z_b: float, n_frames: int) -> list[float]:
+    return [z_a + (z_b - z_a) * (i / float(max(1, n_frames))) for i in range(n_frames + 1)]
+
+
 def _vertical_path_zs(z0: float, z_top: float, step_mm: float, return_down: bool) -> list[float]:
     zs_up: list[float] = []
     z = z0
@@ -721,10 +799,9 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     """
     From firmware NEUTRAL: straight vertical line in the (x,z) plane (fixed x, base yaw 0).
 
-    Default **smooth** mode: time-based interpolation z0->z_max with IK targets every frame,
-    then **proportional** rate limiting (same fraction of remaining error per joint, capped by
-    MAX_JOINT_DPS in motion_config_v1) so shoulder and elbow start and progress together — not
-    independent LPF per joint, which makes one joint appear to lead.
+    Default **smooth** mode: **arc-length z scheduling** (uniform progress in measured joint-space
+    cost along the path) so motion does not rush near the top — linear z-in-time would. Each
+    control frame uses several **substeps** of proportional sync rate limiting (MAX_JOINT_DPS).
 
     Wrist uses **delta_neutral** stab: level reference is neutral (q=0); q_wrist tracks the
     change in link pitch from that pose. Stab reads shoulder/elbow from the **previous
@@ -750,6 +827,7 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     max_dps_raise = tuple(float(x) for x in getattr(mv1, "MAX_JOINT_DPS", (120.0, 90.0, 60.0, 75.0)))
     duration_down = float(args.duration_up) if args.duration_down is None else float(args.duration_down)
     dt = 1.0 / hz
+    substeps = max(1, int(args.raise_substeps))
 
     fk0 = kinematics.forward_kinematics(0.0, 0.0)
     x0 = float(args.x_mm) if args.x_mm is not None else float(fk0.tip.x)
@@ -834,12 +912,6 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     if not discrete:
         n_up = max(2, int(math.ceil(duration_up * hz)))
         n_dn = max(2, int(math.ceil(duration_down * hz))) if bool(args.return_down) else 0
-        total_frames = n_up + (n_dn - 1 if n_dn > 1 and bool(args.return_down) else 0)
-        print(
-            f"smooth: hz={hz:.1f} dt={dt*1000:.1f}ms | up {duration_up:.1f}s ({n_up} frames) "
-            f"{'+ down ' + str(round(duration_down, 1)) + 's' if bool(args.return_down) else ''} "
-            f"| sync proportional rate limit MAX_JOINT_DPS={max_dps_raise}"
-        )
     else:
         zs_path = _vertical_path_zs(z0, z_top, step_mm, bool(args.return_down))
         print(
@@ -875,31 +947,30 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
             )
 
     def _run_smooth_segment(
-        z_a: float,
-        z_b: float,
+        z_schedule: list[float],
         n_frames: int,
         prev_cmd: ServoCommand,
         print_samples: bool,
         label: str,
         controller: RobotController | None,
     ) -> ServoCommand:
-        """Interpolate z; IK + wrist each frame; proportional sync rate limit; optional serial send."""
+        """Follow precomputed z samples; substeps of sync rate limit per frame; optional serial send."""
+        if len(z_schedule) != n_frames + 1:
+            raise ValueError("z_schedule length must be n_frames+1")
+        dt_sub = dt / float(substeps)
         cmd = prev_cmd
         for i in range(n_frames + 1):
-            t = i / float(max(1, n_frames))
-            zq = z_a + t * (z_b - z_a)
+            zq = z_schedule[i]
             r = _solve_at_z(zq, cmd)
             if not r.ik.ok:
                 print(f"ABORT: IK failed at z={zq:.2f} ({label})", file=sys.stderr)
                 raise RuntimeError("ik_fail")
             tgt = r.servo_clamped
-            if i == n_frames:
-                cmd = tgt
-            else:
-                cmd = sync_step_servo_toward(cmd, tgt, dt, max_dps_raise)
-            if controller is not None:
-                controller.send_servo(cmd)
-                time.sleep(dt)
+            for _ in range(substeps):
+                cmd = sync_step_servo_toward(cmd, tgt, dt_sub, max_dps_raise)
+                if controller is not None:
+                    controller.send_servo(cmd)
+                    time.sleep(dt_sub)
             if print_samples and (
                 i == 0
                 or i == n_frames
@@ -915,6 +986,22 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
         shoulder=config.NEUTRAL_SHOULDER,
     )
 
+    if not discrete:
+        k_fine = args.arc_fine if args.arc_fine is not None else max(48, min(300, int(abs(z_top - z0) / 0.08)))
+        use_arc = not bool(args.no_arc_length)
+        print(
+            f"smooth: hz={hz:.1f} dt={dt*1000:.1f}ms | up {duration_up:.1f}s ({n_up} frames) "
+            f"{'+ down ' + str(round(duration_down, 1)) + 's' if bool(args.return_down) else ''} "
+            f"| arc_z={use_arc} k_fine={k_fine} substeps={substeps} | sync MAX_JOINT_DPS={max_dps_raise}"
+        )
+        z_sched_up = (
+            _raise_camera_arc_z_schedule(z0, z_top, neutral_cmd, _solve_at_z, n_up, k_fine)
+            if use_arc
+            else _raise_camera_linear_z_schedule(z0, z_top, n_up)
+        )
+    else:
+        z_sched_up = []
+
     if args.dry_run:
         if discrete:
             cmd_dr = neutral_cmd
@@ -924,11 +1011,14 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
                 cmd_dr = r.servo_clamped
         else:
             try:
-                n_up = max(2, int(math.ceil(duration_up * hz)))
-                cmd = _run_smooth_segment(z0, z_top, n_up, neutral_cmd, True, "up", None)
+                cmd = _run_smooth_segment(z_sched_up, n_up, neutral_cmd, True, "up", None)
                 if bool(args.return_down):
-                    n_dn = max(2, int(math.ceil(duration_down * hz)))
-                    _run_smooth_segment(z_top, z0, n_dn, cmd, True, "dn", None)
+                    z_sched_dn = (
+                        _raise_camera_arc_z_schedule(z_top, z0, cmd, _solve_at_z, n_dn, k_fine)
+                        if use_arc
+                        else _raise_camera_linear_z_schedule(z_top, z0, n_dn)
+                    )
+                    _run_smooth_segment(z_sched_dn, n_dn, cmd, True, "dn", None)
             except RuntimeError:
                 return 2
         print("dry-run: no serial motion.")
@@ -959,12 +1049,15 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
                 controller.send_servo(cmd)
                 time.sleep(delay)
         else:
-            n_up = max(2, int(math.ceil(duration_up * hz)))
             try:
-                cmd = _run_smooth_segment(z0, z_top, n_up, neutral_cmd, True, "up", controller)
+                cmd = _run_smooth_segment(z_sched_up, n_up, neutral_cmd, True, "up", controller)
                 if bool(args.return_down):
-                    n_dn = max(2, int(math.ceil(duration_down * hz)))
-                    cmd = _run_smooth_segment(z_top, z0, n_dn, cmd, True, "dn", controller)
+                    z_sched_dn = (
+                        _raise_camera_arc_z_schedule(z_top, z0, cmd, _solve_at_z, n_dn, k_fine)
+                        if use_arc
+                        else _raise_camera_linear_z_schedule(z_top, z0, n_dn)
+                    )
+                    cmd = _run_smooth_segment(z_sched_dn, n_dn, cmd, True, "dn", controller)
             except RuntimeError:
                 controller.neutral()
                 return 2
@@ -1168,8 +1261,8 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument(
         "--hz",
         type=float,
-        default=60.0,
-        help="control rate for smooth mode — higher = smaller per-frame steps (default: 60)",
+        default=90.0,
+        help="outer control rate for smooth mode (default: 90); each frame uses --raise-substeps sends",
     )
     rc.add_argument(
         "--duration-up",
@@ -1210,6 +1303,23 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="delta-from-neutral wrist (level ref at neutral); --no-wrist-stab fixes q_wrist=0",
+    )
+    rc.add_argument(
+        "--no-arc-length",
+        action="store_true",
+        help="use linear z vs time (default: arc-length scheduling for even joint-space motion)",
+    )
+    rc.add_argument(
+        "--raise-substeps",
+        type=int,
+        default=3,
+        help="serial servo commands per outer frame for smoother motion (default: 3)",
+    )
+    rc.add_argument(
+        "--arc-fine",
+        type=int,
+        default=None,
+        help="fine samples for arc-length precompute (default: auto from z span)",
     )
     rc.add_argument("--dry-run", action="store_true")
     rc.set_defaults(func=cmd_raise_camera_line)

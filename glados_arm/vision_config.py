@@ -197,7 +197,7 @@ FIRST_FIND_BIAS_ELBOW_DEG = -8.0
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
 TRACK_WRIST_DEG_PER_NORM = 8.0
-TRACK_WRIST_MIN_STEP_DEG = 1
+TRACK_WRIST_MIN_STEP_DEG = 0
 TRACK_WRIST_MAX_TRIM_DEG = 95
 SIGN_ERROR_Y_WRIST = 1.0  # wrist was correct; only shoulder/elbow use inverted Y sign below
 WRIST_SMOOTH_ALPHA = 0.20

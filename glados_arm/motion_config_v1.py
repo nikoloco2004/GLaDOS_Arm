@@ -12,7 +12,7 @@ WRIST_TRIM_MODE = "stab"  # "stab" | "legacy" — legacy uses image-based trim o
 DESIRED_CAMERA_PITCH_RAD = 0.0  # world: level horizon in plane (tune install)
 CAMERA_MOUNT_OFFSET_RAD = 0.0  # calibration: wrist zero vs camera boresight
 BASE_YAW_COUPLING_GAIN = 0.0  # optional q_wrist += -gain * base_yaw_rad (small, 0 = off)
-WRIST_STAB_LINK_PITCH_GAIN = -1.0  # invert link-pitch compensation sign (+1 legacy, -1 reversed)
+WRIST_STAB_LINK_PITCH_GAIN = -0.7  # lower magnitude to reduce wrist over-correction/oscillation
 
 # Comfort band inside hard limits [NEUTRAL - half, NEUTRAL + half] (servo degrees)
 WRIST_COMFORT_HALF_SPAN_DEG = 40.0
@@ -28,6 +28,9 @@ MAX_JOINT_ACCEL_DPS2 = (0.0, 0.0, 0.0, 0.0)
 
 # Smoothing: max slew deg/s per joint (wrist, elbow, base, shoulder)
 MAX_JOINT_DPS = (120.0, 90.0, 60.0, 75.0)
+# Extra wrist damping on top of MAX_JOINT_DPS.
+WRIST_MAX_DPS = 45.0
+WRIST_COMMAND_LPF_ALPHA = 0.18
 
 # Low-pass on final integer command precursors (0 = off)
 COMMAND_LPF_ALPHA = 0.35

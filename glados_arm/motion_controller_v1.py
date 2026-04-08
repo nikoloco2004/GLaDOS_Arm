@@ -116,16 +116,20 @@ class MotionControllerV1:
         mv = self._mv1
         max_dps = getattr(mv, "MAX_JOINT_DPS", mv1_defaults.MAX_JOINT_DPS)
         alpha = float(getattr(mv, "COMMAND_LPF_ALPHA", mv1_defaults.COMMAND_LPF_ALPHA))
+        wrist_alpha = float(getattr(mv, "WRIST_COMMAND_LPF_ALPHA", alpha))
+        wrist_alpha = clamp(wrist_alpha, 0.0, 1.0)
         prev = self._cmd_lpf
         # Low-pass on float precursors
         smoothed = ServoCommand(
-            wrist=int(round(lowpass_scalar(float(prev.wrist), float(cmd.wrist), alpha))),
+            wrist=int(round(lowpass_scalar(float(prev.wrist), float(cmd.wrist), wrist_alpha))),
             elbow=int(round(lowpass_scalar(float(prev.elbow), float(cmd.elbow), alpha))),
             base=int(round(lowpass_scalar(float(prev.base), float(cmd.base), alpha))),
             shoulder=int(round(lowpass_scalar(float(prev.shoulder), float(cmd.shoulder), alpha))),
         )
         self._cmd_lpf = smoothed
-        out = rate_limit_servo_deg_per_sec(self.last_valid_cmd, smoothed, dt, max_dps)
+        wrist_max_dps = float(getattr(mv, "WRIST_MAX_DPS", float(max_dps[0])))
+        dps = (wrist_max_dps, float(max_dps[1]), float(max_dps[2]), float(max_dps[3]))
+        out = rate_limit_servo_deg_per_sec(self.last_valid_cmd, smoothed, dt, dps)
         max_a = getattr(mv, "MAX_JOINT_ACCEL_DPS2", mv1_defaults.MAX_JOINT_ACCEL_DPS2)
         if max(max_a) > 1e-6:
             out, self._joint_vel = accel_limit_delta(

@@ -331,6 +331,10 @@ def _wrist_stab_pitch_rad(
     """
     Same wrist model angle as MotionControllerV1 (stab): cancel link pitch so camera boresight
     matches DESIRED_CAMERA_PITCH_RAD (see motion_config_v1).
+
+    Hardware note: on this arm, **model q_wrist = 0** (servo at NEUTRAL_WRIST) is already level and
+    facing forward; stab adds q_wrist as shoulder/elbow move so the camera **stays** that way.
+    Tune CAMERA_MOUNT_OFFSET_RAD if the first pose after stab does not match neutral wrist.
     """
     fk = kinematics.forward_kinematics(q_shoulder_rad, q_elbow_rad)
     desired = float(getattr(mv1, "DESIRED_CAMERA_PITCH_RAD", 0.0))
@@ -622,6 +626,10 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     From firmware NEUTRAL (model q=0 at FK(0,0) tip): move tip in a straight vertical line in
     the kinematic plane (fixed x, fixed base yaw). Optionally apply wrist stabilization so the
     camera stays level (same math as face-tracking WRIST_TRIM_MODE=stab).
+
+    Calibration fact (this install): **wrist at NEUTRAL_WRIST with the arm at neutral is level and
+    facing forward.** Wrist stab preserves that as shoulder/elbow lift the tip; use --no-wrist-stab
+    to keep wrist fixed at model zero (no compensation while moving).
     """
     import time
 
@@ -917,7 +925,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     rc = sub.add_parser(
         "raise-camera",
-        help="slow vertical line from NEUTRAL: fixed x + base yaw, +z scan; wrist stab keeps camera level",
+        help=(
+            "slow vertical line from NEUTRAL: fixed x + base yaw, +z; wrist stab keeps camera level "
+            "(neutral wrist = level/forward at rest; stab preserves that while links move)"
+        ),
     )
     rc.add_argument("--port", default=config.SERIAL_DEFAULT_PORT)
     rc.add_argument(

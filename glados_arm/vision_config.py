@@ -61,23 +61,9 @@ BASE_PID_ZERO_CROSS_BRAKE = 0.45
 BASE_PID_NEAR_ERROR = 0.10
 BASE_PID_NEAR_STEP_SCALE = 0.55
 BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
-# Image Y correction (normalized) -> vertical target z delta (mm/frame)
-TRACK_Z_MM_PER_NORM = 2.2
-# Vertical Y->Z controller mode: "p" (legacy proportional) or "pid".
-Y_Z_CTRL_MODE = "pid"
-# PID tuning for vertical correction: image Y error -> target_z_mm delta (mm/frame), then clamped by MAX_Z_STEP_MM.
-Y_PID_KP = 0.82
-Y_PID_KI = 0.006
-Y_PID_KD = 0.65
-Y_PID_I_CLAMP = 2.5
-Y_PID_D_ALPHA = 0.50
-Y_PID_RESET_ON_LOSS = True
+# IK mode: vertical face correction is shoulder/elbow degrees from corr_y_ik (no image-Y -> target_z_mm).
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
-# Cross-axis coupling: x correction can influence vertical z correction (camera/geometry coupling).
-# effective_y_for_z = y + SIGN_ERROR_X_TO_Z * TRACK_Z_FROM_X_MIX * x
-TRACK_Z_FROM_X_MIX = 0.0
-SIGN_ERROR_X_TO_Z = 1.0
 IK_PREFER = "elbow_up"
 IK_HOLD_LAST_ON_FAIL = True
 IK_ACCEPT_CLAMPED = True
@@ -90,8 +76,6 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.052
-# Per-frame cap on image-Y -> target_z_mm (IK vertical). Too small = shoulder/elbow barely move via IK.
-MAX_Z_STEP_MM = 6.0
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.25
 
@@ -109,14 +93,12 @@ DIST_ALPHA = 0.45
 DIST_ENABLE_AFTER_LOCK = True
 # Distance sign: +1 means smaller face -> increase x target; -1 flips behavior.
 DIST_SIGN_X = -1.0
-# Optional distance->z coupling so shoulder participates from range changes.
 DIST_SIGN_Z = 1.0
-DIST_Z_MM_PER_PX = 0.15
-DIST_Z_MAX_STEP_MM = 1.0
+DIST_Z_MM_PER_PX = 0.0
+DIST_Z_MAX_STEP_MM = 0.0
 
-# Extra shoulder engagement in IK mode (applied on top of IK shoulder command; uses corr_y_ik).
-TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 4.0
-TRACK_SHOULDER_ASSIST_MAX_DEG = 18
+# IK vertical: clamp on top of TRACK_GAIN_* * corr_y_ik (deg per unit normalized error).
+TRACK_SHOULDER_ASSIST_MAX_DEG = 28
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
@@ -129,12 +111,9 @@ ZERR_SHOULDER_ASSIST_ENABLE = False
 ZERR_SHOULDER_DEG_PER_MM = 0.10
 ZERR_SHOULDER_MAX_DEG = 8
 ZERR_SIGN_SHOULDER = 1.0
-# Elbow assist in IK mode for vertical compensation (uses corr_y_ik).
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 5.0
-TRACK_ELBOW_ASSIST_MAX_DEG = 22
-ELBOW_SMOOTH_ALPHA = 0.12
-ELBOW_MAX_STEP_PER_FRAME_DEG = 3
-ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 4
+TRACK_ELBOW_ASSIST_MAX_DEG = 28
+ELBOW_MAX_STEP_PER_FRAME_DEG = 5
+ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 5
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 6
@@ -190,9 +169,9 @@ RAMP_MAX = 1.2               # max boosted multiplier
 # Horizontal: positive error_x = face to the right of frame center → increase base if SIGN_BASE matches.
 TRACK_GAIN_BASE_DEG = 2.5
 
-# Vertical chain: positive error_y = face above frame center → "up" (tune signs with INVERT_*)
-TRACK_GAIN_SHOULDER_DEG = 1.5
-TRACK_GAIN_ELBOW_DEG = 1.2
+# IK + proportional: vertical chain (deg per unit normalized Y error after deadband)
+TRACK_GAIN_SHOULDER_DEG = 6.0
+TRACK_GAIN_ELBOW_DEG = 7.0
 
 # Sign flips if your mount/camera orientation reverses left/right or up/down
 # Tuned for your current mechanical/camera installation:

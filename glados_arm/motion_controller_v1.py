@@ -554,15 +554,28 @@ class MotionControllerV1:
                     )
                     cmd_try, _ = clamp_servo(cmd_try)
                 elif bool(getattr(vc, "IK_HOLD_LAST_ON_FAIL", True)):
-                    cmd_try = ServoCommand(
-                        wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                        elbow=self.last_valid_cmd.elbow + elbow_assist_deg,
-                        base=solved2.servo_clamped.base,
-                        shoulder=self.last_valid_cmd.shoulder
-                        + shoulder_assist_deg
-                        + shoulder_dist_assist_deg,
-                    )
-                    cmd_try, _ = clamp_servo(cmd_try)
+                    # Prefer the latest reachable planar IK pose over "hold last"; this keeps
+                    # shoulder/elbow advancing when a single frame's refined solve is invalid.
+                    if solved.ik.ok:
+                        raw = solved.servo_clamped
+                        wrist_val = raw.wrist + (wrist_trim_deg if trim_mode == "legacy" else 0)
+                        cmd_try = ServoCommand(
+                            wrist=wrist_val,
+                            elbow=raw.elbow + elbow_assist_deg,
+                            base=raw.base,
+                            shoulder=raw.shoulder + shoulder_assist_deg + shoulder_dist_assist_deg,
+                        )
+                        cmd_try, _ = clamp_servo(cmd_try)
+                    else:
+                        cmd_try = ServoCommand(
+                            wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
+                            elbow=self.last_valid_cmd.elbow + elbow_assist_deg,
+                            base=solved2.servo_clamped.base,
+                            shoulder=self.last_valid_cmd.shoulder
+                            + shoulder_assist_deg
+                            + shoulder_dist_assist_deg,
+                        )
+                        cmd_try, _ = clamp_servo(cmd_try)
                 else:
                     cmd_try = ServoCommand(
                         wrist=config.NEUTRAL_WRIST + wrist_trim_deg,

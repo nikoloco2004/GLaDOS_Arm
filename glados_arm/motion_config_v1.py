@@ -18,7 +18,7 @@ WRIST_STAB_LINK_PITCH_GAIN = -1.0  # invert link-pitch compensation sign (+1 leg
 WRIST_COMFORT_HALF_SPAN_DEG = 40.0
 REBALANCE_TARGET_Z_MM = 2.5
 REBALANCE_TARGET_X_MM = 2.0
-REBALANCE_MAX_ITER = 2
+REBALANCE_MAX_ITER = 6
 
 # IK branch hysteresis: stick to last branch unless |err_y_norm| exceeds this
 IK_BRANCH_SWITCH_ERR_NORM = 0.12

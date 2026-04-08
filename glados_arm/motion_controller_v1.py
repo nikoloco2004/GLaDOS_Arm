@@ -387,7 +387,16 @@ class MotionControllerV1:
             if wants_down and (at_lower or lower_clip or lower_pinned):
                 max_deg = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_MAX_DEG", 20.0)))
                 gain = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM", 80.0)))
-                down_deg = clamp(abs(self.y_for_z) * gain, 0.0, max_deg)
+                y_abs = abs(float(self.y_for_z))
+                y_db = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_DEADBAND_NORM", 0.0)))
+                y_eff = max(0.0, y_abs - y_db)
+                down_deg = clamp(y_eff * gain, 0.0, max_deg)
+                near_norm = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_NEAR_NORM", 0.16)))
+                near_scale = clamp(
+                    float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_NEAR_SCALE", 0.55)), 0.0, 1.0
+                )
+                if y_eff > 0.0 and y_abs < near_norm:
+                    down_deg *= near_scale
                 wrist_cmd = int(round(float(config.NEUTRAL_WRIST) - down_deg))
                 cmd = ServoCommand(
                     wrist=wrist_cmd,

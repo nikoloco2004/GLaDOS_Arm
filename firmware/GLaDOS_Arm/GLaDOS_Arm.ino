@@ -31,6 +31,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(PCA9685_I2C_ADDR);
 
 // ================= PCA9685 SETTINGS =================
 constexpr uint8_t SERVO_FREQ_HZ = 50;
+constexpr uint8_t PCA_REG_LED0_ON_L = 0x06;
 
 // PCA9685 "off" tick range for setPWM (third arg) — single profile for all joints.
 constexpr uint16_t PWM_TICK_ALL_MIN = 102;
@@ -143,22 +144,58 @@ static void setChannelPwmTicks(uint8_t pcaChannel, uint16_t ticks) {
   pwm.setPWM(pcaChannel, 0, ticks);
 }
 
+static void flushCurrentToPca() {
+  if (!pcaReady) return;
+
+  // Fast path: push channels 0..3 in one I2C burst so all joints update in one control tick.
+  uint16_t ticksByChannel[4] = {0, 0, 0, 0};
+  bool onlyLowChannels = true;
+  for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
+    uint8_t ch = kPcaChannel[j];
+    if (ch < 4) {
+      ticksByChannel[ch] = angleToPwmTicks(currentDeg[j]);
+    } else {
+      onlyLowChannels = false;
+    }
+  }
+
+  if (onlyLowChannels) {
+    Wire.beginTransmission(PCA9685_I2C_ADDR);
+    Wire.write(PCA_REG_LED0_ON_L);
+    for (uint8_t ch = 0; ch < 4; ++ch) {
+      const uint16_t ticks = ticksByChannel[ch];
+      Wire.write(static_cast<uint8_t>(0));  // ON_L
+      Wire.write(static_cast<uint8_t>(0));  // ON_H
+      Wire.write(static_cast<uint8_t>(ticks & 0xFF));         // OFF_L
+      Wire.write(static_cast<uint8_t>((ticks >> 8) & 0x0F));  // OFF_H
+    }
+    const uint8_t err = Wire.endTransmission();
+    if (err == 0) return;
+  }
+
+  // Fallback: per-channel writes.
+  for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
+    uint8_t ch = kPcaChannel[j];
+    setChannelPwmTicks(ch, angleToPwmTicks(currentDeg[j]));
+  }
+}
+
 static void writeJoint(JointIndex j, int deg) {
   deg = clampJoint(j, deg);
   currentDeg[j] = deg;
-  uint16_t ticks = angleToPwmTicks(deg);
-  setChannelPwmTicks(kPcaChannel[j], ticks);
 }
 
 static void applyTargetsNow() {
   for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
     writeJoint(static_cast<JointIndex>(j), targetDeg[j]);
   }
+  flushCurrentToPca();
 }
 
 static void applyTargetsStaggered(unsigned long stepDelayMs) {
   for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
     writeJoint(static_cast<JointIndex>(j), targetDeg[j]);
+    flushCurrentToPca();
     if (stepDelayMs > 0 && j + 1 < NUM_JOINTS) delay(stepDelayMs);
   }
 }
@@ -189,6 +226,7 @@ static void updateSlew() {
 
   const float maxStep = slewDegPerSec * dt;
 
+  bool moved = false;
   for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
     int cur = currentDeg[j];
     int tgt = clampJoint(static_cast<JointIndex>(j), targetDeg[j]);
@@ -202,6 +240,10 @@ static void updateSlew() {
       step = (diff > 0) ? static_cast<int>(maxStep) : -static_cast<int>(maxStep);
     }
     writeJoint(static_cast<JointIndex>(j), cur + step);
+    moved = true;
+  }
+  if (moved) {
+    flushCurrentToPca();
   }
 }
 
@@ -388,6 +430,7 @@ static void handleLine(char* line) {
         for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
           writeJoint(static_cast<JointIndex>(j), targetDeg[j]);
         }
+        flushCurrentToPca();
         Serial.println(F("OK SET_SERVO"));
       } else {
         Serial.println(F("OK SET_SERVO (slewing)"));

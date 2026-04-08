@@ -94,6 +94,9 @@ MAX_BASE_YAW_STEP_RAD = 0.052
 MAX_Z_STEP_MM = 0.62
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.30
+# Use unfiltered face Y for vertical error so the arm reacts immediately (filt_cy lags by seconds).
+# Set False to use filt_cy for vertical if the chain jitters from bbox noise.
+FACE_Y_USE_RAW = True
 
 # Distance control from face box size (applies in IK mode).
 # We estimate relative distance from detected face width in pixels:

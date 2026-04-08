@@ -479,7 +479,12 @@ def run_tracking(
                     filt_face_w = (1.0 - dist_alpha) * filt_face_w + dist_alpha * float(fw)
 
                 err_x = (filt_cx - cx_img) / max(cx_img, 1.0)  # face right => +
-                err_y = (cy_img - filt_cy) / max(cy_img, 1.0)  # face above => +
+                # Filtered cy lags real motion → vertical error builds slowly (arm feels seconds late).
+                # Raw cy matches wrist responsiveness; horizontal still uses filt_cx for smooth pan.
+                err_y_filt = (cy_img - filt_cy) / max(cy_img, 1.0)  # face above => +
+                err_y_raw = (cy_img - cy) / max(cy_img, 1.0)
+                use_raw_y = bool(getattr(vc, "FACE_Y_USE_RAW", False))
+                err_y = err_y_raw if use_raw_y else err_y_filt
 
                 corr_x_norm = _apply_deadband(err_x, vc.TRACK_DEADBAND)
                 corr_y_norm = _apply_deadband(err_y, vc.TRACK_DEADBAND)
@@ -521,26 +526,31 @@ def run_tracking(
                 corr_y_pre_eng = corr_y_ctrl
                 corr_x_ctrl *= engage
                 corr_y_ctrl *= engage
-                # IK vertical: use full corr_y_pre_eng unless first-find extend is on and idle (legacy).
+                # After lock-in, use full vertical error for IK/assists/wrist (engage only softens first N frames).
+                locked_in = face_lock_frames >= lock_need
+                corr_y_vert = corr_y_pre_eng if locked_in else corr_y_ctrl
+                # IK vertical + first-find floor (when first-find off, IK always used full pre-engage error).
                 if bool(getattr(vc, "FIRST_FIND_EXTEND_ENABLE", False)):
-                    corr_y_ik = corr_y_pre_eng if first_find_phase != "idle" else corr_y_ctrl
                     if first_find_phase != "idle":
+                        corr_y_ik = corr_y_vert
                         min_v = float(getattr(vc, "FIRST_FIND_MIN_VERTICAL_NORM", 0.0))
                         if min_v > 0.0 and abs(corr_y_ik) < min_v:
                             sgn = 1.0 if corr_y_norm >= 0.0 else -1.0
                             if abs(corr_y_norm) < 1e-6:
                                 sgn = 1.0
                             corr_y_ik = sgn * min_v
+                    else:
+                        corr_y_ik = corr_y_vert
                 else:
                     corr_y_ik = corr_y_pre_eng
                 wrist_cmd = (
                     float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
-                    * corr_y_ctrl
+                    * corr_y_vert
                     * float(getattr(vc, "TRACK_WRIST_DEG_PER_NORM", 0.8))
                 )
                 wrist_trim_deg = int(round(wrist_cmd))
                 wrist_min_step = max(0, int(getattr(vc, "TRACK_WRIST_MIN_STEP_DEG", 0)))
-                if wrist_trim_deg == 0 and abs(corr_y_ctrl) > 1e-6 and wrist_min_step > 0:
+                if wrist_trim_deg == 0 and abs(corr_y_vert) > 1e-6 and wrist_min_step > 0:
                     wrist_trim_deg = wrist_min_step if wrist_cmd > 0.0 else -wrist_min_step
                 wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
                 wrist_trim_deg = max(-wrist_max_trim, min(wrist_max_trim, wrist_trim_deg))
@@ -561,7 +571,7 @@ def run_tracking(
                 shoulder_assist_deg = int(
                     round(
                         float(getattr(vc, "SIGN_ERROR_Y_SHOULDER", 1.0))
-                        * corr_y_ctrl
+                        * corr_y_vert
                         * float(getattr(vc, "TRACK_SHOULDER_ASSIST_DEG_PER_NORM", 0.0))
                     )
                 )
@@ -570,7 +580,7 @@ def run_tracking(
                 elbow_assist_deg = int(
                     round(
                         float(getattr(vc, "SIGN_ERROR_Y_ELBOW", 1.0))
-                        * corr_y_ctrl
+                        * corr_y_vert
                         * float(getattr(vc, "TRACK_ELBOW_ASSIST_DEG_PER_NORM", 0.0))
                     )
                 )
@@ -879,10 +889,10 @@ def run_tracking(
                         round(vc.SIGN_ERROR_X_BASE * corr_x_ctrl * vc.TRACK_GAIN_BASE_DEG)
                     )
                     d_sh = int(
-                        round(vc.SIGN_ERROR_Y_SHOULDER * corr_y_ctrl * vc.TRACK_GAIN_SHOULDER_DEG)
+                        round(vc.SIGN_ERROR_Y_SHOULDER * corr_y_vert * vc.TRACK_GAIN_SHOULDER_DEG)
                     )
                     d_el = int(
-                        round(vc.SIGN_ERROR_Y_ELBOW * corr_y_ctrl * vc.TRACK_GAIN_ELBOW_DEG)
+                        round(vc.SIGN_ERROR_Y_ELBOW * corr_y_vert * vc.TRACK_GAIN_ELBOW_DEG)
                     )
                     cmd = ServoCommand(
                         wrist=config.NEUTRAL_WRIST,
@@ -929,7 +939,7 @@ def run_tracking(
                     )
                     cv2.putText(
                         vis,
-                        f"corr x:{corr_x_px:+5.0f}px ({corr_x_norm:+.3f}->{corr_x_ctrl:+.3f}) y:{corr_y_px:+5.0f}px ({corr_y_norm:+.3f}->{corr_y_ctrl:+.3f})",
+                        f"corr x:{corr_x_px:+5.0f}px ({corr_x_norm:+.3f}->{corr_x_ctrl:+.3f}) y:{corr_y_px:+5.0f}px ({corr_y_norm:+.3f}->{corr_y_vert:+.3f}v e={engage:.2f})",
                         (10, 72),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.55,

@@ -176,8 +176,10 @@ def _base_yaw_limit_rad() -> float:
     if scale <= 1e-9:
         return cfg_lim_rad
 
-    pos_rad = (float(config.SERVO_BASE_MAX) - float(config.NEUTRAL_BASE)) / scale
-    neg_rad = (float(config.NEUTRAL_BASE) - float(config.SERVO_BASE_MIN)) / scale
+    # Keep a tiny margin so servo rounding cannot request one degree outside [min,max].
+    margin_deg = 0.75
+    pos_rad = (float(config.SERVO_BASE_MAX) - margin_deg - float(config.NEUTRAL_BASE)) / scale
+    neg_rad = (float(config.NEUTRAL_BASE) - (float(config.SERVO_BASE_MIN) + margin_deg)) / scale
     phys_lim_rad = max(0.0, min(pos_rad, neg_rad))
     return min(cfg_lim_rad, phys_lim_rad)
 

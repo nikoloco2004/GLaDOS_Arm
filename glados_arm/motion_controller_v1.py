@@ -102,6 +102,16 @@ class MotionControllerV1:
     def _mv(self, name: str, default: Any) -> Any:
         return getattr(self._mv1, name, getattr(mv1_defaults, name, default))
 
+    @staticmethod
+    def _hard_clamp_base(cmd: ServoCommand) -> ServoCommand:
+        """Never emit a base command outside configured servo bounds."""
+        return ServoCommand(
+            wrist=cmd.wrist,
+            elbow=cmd.elbow,
+            base=int(clamp(float(cmd.base), float(config.SERVO_BASE_MIN), float(config.SERVO_BASE_MAX))),
+            shoulder=cmd.shoulder,
+        )
+
     def _smooth_and_limit(self, cmd: ServoCommand, _t: float, dt: float) -> ServoCommand:
         mv = self._mv1
         max_dps = getattr(mv, "MAX_JOINT_DPS", mv1_defaults.MAX_JOINT_DPS)
@@ -143,7 +153,7 @@ class MotionControllerV1:
         )
         cl, _ = clamp_servo(cmd)
         self.elbow_cmd_last = cl.elbow
-        out = self._smooth_and_limit(cl, vm.t_seconds, dt)
+        out = self._hard_clamp_base(self._smooth_and_limit(cl, vm.t_seconds, dt))
         self.last_valid_cmd = out
         return out
 
@@ -331,7 +341,7 @@ class MotionControllerV1:
             z_step=z_step,
         )
 
-        out = self._smooth_and_limit(cmd, vm.t_seconds, dt)
+        out = self._hard_clamp_base(self._smooth_and_limit(cmd, vm.t_seconds, dt))
         self.last_valid_cmd = out
         return out
 

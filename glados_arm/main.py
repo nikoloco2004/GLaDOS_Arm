@@ -423,6 +423,122 @@ def cmd_ik_servo_test(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
+    """
+    Fixed base yaw (no pan) and fixed plane x: move tip upward along +z as far as IK allows,
+    then optionally return. Wrist stays at model q_wrist=0 (neutral trim); use face tracking
+    wrist stab for true horizon hold.
+
+    Scans upward in small steps to find max z, then interpolates by --step-mm with --delay-s.
+    """
+    import time
+
+    from . import vision_config as vc
+
+    prefer = args.prefer
+    delay = max(0.08, float(args.delay_s))
+    step_mm = max(0.5, float(args.step_mm))
+    scan_mm = max(0.25, float(args.scan_mm))
+    yaw_fixed = 0.0
+
+    fk0 = kinematics.forward_kinematics(0.0, 0.0)
+    x0 = float(args.x_mm) if args.x_mm is not None else float(fk0.tip.x)
+    z0 = float(fk0.tip.z)
+    x0, z0, yaw_fixed = _clamp_ik_target(x0, z0, yaw_fixed, vc)
+
+    z_max_env = float(getattr(vc, "TARGET_Z_MAX_MM", 170.0))
+
+    # Find highest z at this x with fixed yaw (coarse scan).
+    z_top = z0
+    z_scan = z0 + scan_mm
+    while z_scan <= z_max_env + 1e-6:
+        xc, zc, yc = _clamp_ik_target(x0, z_scan, yaw_fixed, vc)
+        r = solve_vertical_plane(
+            x_mm=xc,
+            z_mm=zc,
+            base_yaw_rad=yc,
+            q_wrist_rad=0.0,
+            prefer=prefer,
+        )
+        if not r.ik.ok:
+            break
+        z_top = zc
+        z_scan += scan_mm
+
+    # Build smooth path z0 -> z_top in step_mm increments.
+    zs_up: list[float] = []
+    z = z0
+    while z < z_top - 1e-6:
+        zs_up.append(z)
+        z += step_mm
+    zs_up.append(z_top)
+
+    zs_path = list(zs_up)
+    if bool(args.return_down) and len(zs_up) > 1:
+        zs_path = zs_up + zs_up[-2::-1]
+
+    print("IK vertical line - fixed base yaw (forward), fixed x, sweep +z then optional return.")
+    print(
+        f"FK(0,0) tip x={fk0.tip.x:.2f} z={fk0.tip.z:.2f} mm | using x={x0:.1f} mm yaw={yaw_fixed:+.4f} rad | prefer={prefer}"
+    )
+    print(f"scan: z_top={z_top:.2f} mm (env z_max={z_max_env:.1f}) | path steps={len(zs_path)} step={step_mm:.1f}mm delay={delay:.2f}s")
+
+    def _solve_at_z(zq: float) -> VerticalSolveResult:
+        xc, zc, yc = _clamp_ik_target(x0, zq, yaw_fixed, vc)
+        return solve_vertical_plane(
+            x_mm=xc,
+            z_mm=zc,
+            base_yaw_rad=yc,
+            q_wrist_rad=0.0,
+            prefer=prefer,
+        )
+
+    if args.dry_run:
+        for i, zq in enumerate(zs_path):
+            r = _solve_at_z(zq)
+            clipped = ",".join(r.clip_notes) if r.clip_notes else "none"
+            print(
+                f"  {i+1:03d} z={zq:6.2f} ik_ok={r.ik.ok} servo_feasible={r.ok} clips={clipped} "
+                f"servo=({r.servo_clamped.wrist},{r.servo_clamped.elbow},{r.servo_clamped.base},{r.servo_clamped.shoulder})"
+            )
+        print("dry-run: no serial motion.")
+        return 0
+
+    arm = ArmSerial(port=args.port)
+    controller = RobotController(serial=arm)
+    controller.connect()
+    try:
+        if not controller.ping():
+            print("PING failed - check USB port and firmware.", file=sys.stderr)
+            return 1
+        print("PING ok. Sending NEUTRAL…")
+        controller.neutral()
+        time.sleep(max(0.2, delay * 0.5))
+
+        for i, zq in enumerate(zs_path):
+            r = _solve_at_z(zq)
+            clipped = ",".join(r.clip_notes) if r.clip_notes else "none"
+            print(
+                f"  {i+1:03d}/{len(zs_path)} z={zq:6.2f} ik_ok={r.ik.ok} servo_feasible={r.ok} clips={clipped} "
+                f"servo=({r.servo_clamped.wrist},{r.servo_clamped.elbow},{r.servo_clamped.base},{r.servo_clamped.shoulder})"
+            )
+            if not r.ik.ok:
+                print("ABORT: IK failed mid-path.", file=sys.stderr)
+                controller.neutral()
+                return 2
+            controller.send_servo(r.servo_clamped)
+            time.sleep(delay)
+
+        print("Returning to NEUTRAL…")
+        controller.neutral()
+        time.sleep(max(0.2, delay * 0.5))
+    finally:
+        controller.close()
+
+    print("Done.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="GLaDOS arm control / kinematics CLI")
     sub = p.add_subparsers(dest="command", required=True)
@@ -552,6 +668,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="print IK/servo plan only; do not open serial",
     )
     iks.set_defaults(func=cmd_ik_servo_test)
+
+    ikv2 = sub.add_parser(
+        "ik-servo-vertical",
+        help="fixed base yaw + fixed x: slow vertical sweep to max +z (IK), optional return; use --dry-run first",
+    )
+    ikv2.add_argument("--port", default=config.SERIAL_DEFAULT_PORT)
+    ikv2.add_argument("--delay-s", type=float, default=0.65, help="seconds between poses (default: 0.65)")
+    ikv2.add_argument(
+        "--step-mm",
+        type=float,
+        default=3.0,
+        help="interpolation step along z between start and z_top (default: 3)",
+    )
+    ikv2.add_argument(
+        "--scan-mm",
+        type=float,
+        default=0.5,
+        help="coarse scan step when finding max z (default: 0.5)",
+    )
+    ikv2.add_argument(
+        "--x-mm",
+        type=float,
+        default=None,
+        help="fixed plane x in mm (default: FK(0,0) tip x)",
+    )
+    ikv2.add_argument(
+        "--return-down",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="after reaching z_top, trace back to start (default: true)",
+    )
+    ikv2.add_argument("--prefer", choices=("elbow_up", "elbow_down"), default="elbow_up")
+    ikv2.add_argument("--dry-run", action="store_true")
+    ikv2.set_defaults(func=cmd_ik_servo_vertical_line)
 
     return p
 

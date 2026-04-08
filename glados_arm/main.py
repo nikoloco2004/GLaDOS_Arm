@@ -322,6 +322,69 @@ def cmd_ik_vertical_test(args: argparse.Namespace) -> int:
     return 0
 
 
+def _wrist_stab_pitch_rad(
+    q_shoulder_rad: float,
+    q_elbow_rad: float,
+    base_yaw_rad: float,
+    mv1: object,
+) -> float:
+    """
+    Same wrist model angle as MotionControllerV1 (stab): cancel link pitch so camera boresight
+    matches DESIRED_CAMERA_PITCH_RAD (see motion_config_v1).
+    """
+    fk = kinematics.forward_kinematics(q_shoulder_rad, q_elbow_rad)
+    desired = float(getattr(mv1, "DESIRED_CAMERA_PITCH_RAD", 0.0))
+    mount = float(getattr(mv1, "CAMERA_MOUNT_OFFSET_RAD", 0.0))
+    kg = float(getattr(mv1, "BASE_YAW_COUPLING_GAIN", 0.0))
+    return desired - (fk.theta1_abs + fk.theta2_abs) - mount - kg * base_yaw_rad
+
+
+def _solve_vertical_with_optional_wrist_stab(
+    x_mm: float,
+    z_mm: float,
+    base_yaw_rad: float,
+    prefer: str,
+    mv1: object,
+    wrist_stab: bool,
+) -> VerticalSolveResult:
+    """Planar IK, then optional second solve with q_wrist from stab (IK unchanged)."""
+    r0 = solve_vertical_plane(
+        x_mm=x_mm,
+        z_mm=z_mm,
+        base_yaw_rad=base_yaw_rad,
+        q_wrist_rad=0.0,
+        prefer=prefer,
+    )
+    if not r0.ik.ok or not wrist_stab:
+        return r0
+    qw = _wrist_stab_pitch_rad(
+        r0.model.q_shoulder_rad,
+        r0.model.q_elbow_rad,
+        base_yaw_rad,
+        mv1,
+    )
+    return solve_vertical_plane(
+        x_mm=x_mm,
+        z_mm=z_mm,
+        base_yaw_rad=base_yaw_rad,
+        q_wrist_rad=qw,
+        prefer=prefer,
+    )
+
+
+def _vertical_path_zs(z0: float, z_top: float, step_mm: float, return_down: bool) -> list[float]:
+    zs_up: list[float] = []
+    z = z0
+    while z < z_top - 1e-6:
+        zs_up.append(z)
+        z += step_mm
+    zs_up.append(z_top)
+    zs_path = list(zs_up)
+    if return_down and len(zs_up) > 1:
+        zs_path = zs_up + zs_up[-2::-1]
+    return zs_path
+
+
 def _clamp_ik_target(x: float, z: float, yaw: float, vc: object) -> tuple[float, float, float]:
     xmin = float(getattr(vc, "TARGET_X_MIN_MM", 100.0))
     xmax = float(getattr(vc, "TARGET_X_MAX_MM", 230.0))
@@ -470,17 +533,7 @@ def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
         z_top = zc
         z_scan += scan_mm
 
-    # Build smooth path z0 -> z_top in step_mm increments.
-    zs_up: list[float] = []
-    z = z0
-    while z < z_top - 1e-6:
-        zs_up.append(z)
-        z += step_mm
-    zs_up.append(z_top)
-
-    zs_path = list(zs_up)
-    if bool(args.return_down) and len(zs_up) > 1:
-        zs_path = zs_up + zs_up[-2::-1]
+    zs_path = _vertical_path_zs(z0, z_top, step_mm, bool(args.return_down))
 
     print("IK vertical line - fixed base yaw (forward), fixed x, sweep +z then optional return.")
     print(
@@ -557,6 +610,131 @@ def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
         print("Returning to NEUTRAL…")
         controller.neutral()
         time.sleep(max(0.2, delay * 0.5))
+    finally:
+        controller.close()
+
+    print("Done.")
+    return 0
+
+
+def cmd_raise_camera_line(args: argparse.Namespace) -> int:
+    """
+    From firmware NEUTRAL (model q=0 at FK(0,0) tip): move tip in a straight vertical line in
+    the kinematic plane (fixed x, fixed base yaw). Optionally apply wrist stabilization so the
+    camera stays level (same math as face-tracking WRIST_TRIM_MODE=stab).
+    """
+    import time
+
+    from . import motion_config_v1 as mv1
+    from . import vision_config as vc
+
+    prefer = args.prefer
+    delay = max(0.1, float(args.delay_s))
+    step_mm = max(0.5, float(args.step_mm))
+    scan_mm = max(0.25, float(args.scan_mm))
+    yaw_fixed = 0.0
+    wrist_stab = bool(args.wrist_stab)
+
+    fk0 = kinematics.forward_kinematics(0.0, 0.0)
+    x0 = float(args.x_mm) if args.x_mm is not None else float(fk0.tip.x)
+    x0 -= float(args.pull_back_mm)
+    z0 = float(fk0.tip.z)
+    x0, z0, yaw_fixed = _clamp_ik_target(x0, z0, yaw_fixed, vc)
+
+    z_max_env = float(getattr(vc, "TARGET_Z_MAX_MM", 170.0))
+
+    z_top = z0
+    z_scan = z0 + scan_mm
+    while z_scan <= z_max_env + 1e-6:
+        xc, zc, yc = _clamp_ik_target(x0, z_scan, yaw_fixed, vc)
+        r = solve_vertical_plane(
+            x_mm=xc,
+            z_mm=zc,
+            base_yaw_rad=yc,
+            q_wrist_rad=0.0,
+            prefer=prefer,
+        )
+        if not r.ik.ok:
+            break
+        z_top = zc
+        z_scan += scan_mm
+
+    zs_path = _vertical_path_zs(z0, z_top, step_mm, bool(args.return_down))
+
+    print("Raise camera: neutral tip -> Cartesian +z line; base yaw fixed (no pan).")
+    print(
+        f"FK(0,0) tip x={fk0.tip.x:.2f} z={fk0.tip.z:.2f} mm | path x={x0:.1f} mm "
+        f"pull_back={float(args.pull_back_mm):.1f} mm | wrist_stab={wrist_stab} | prefer={prefer}"
+    )
+    print(
+        f"z_top={z_top:.2f} mm (env z_max={z_max_env:.1f}) | steps={len(zs_path)} "
+        f"step={step_mm:.1f} mm delay={delay:.2f} s"
+    )
+
+    def _fmt_line(r: VerticalSolveResult, zq: float, idx: str) -> str:
+        clipped = ",".join(r.clip_notes) if r.clip_notes else "none"
+        extra = ""
+        if r.clip_notes:
+            extra = f" raw_sh={r.servo_raw.shoulder}"
+        return (
+            f"  {idx} z={zq:6.2f} ik_ok={r.ik.ok} servo_feasible={r.ok} clips={clipped}{extra} "
+            f"servo=({r.servo_clamped.wrist},{r.servo_clamped.elbow},{r.servo_clamped.base},{r.servo_clamped.shoulder})"
+        )
+
+    def _solve_at_z(zq: float) -> VerticalSolveResult:
+        xc, zc, yc = _clamp_ik_target(x0, zq, yaw_fixed, vc)
+        return _solve_vertical_with_optional_wrist_stab(
+            xc,
+            zc,
+            yc,
+            prefer,
+            mv1,
+            wrist_stab,
+        )
+
+    if z_top > z0 + 1e-6:
+        r_start = _solve_at_z(z0)
+        rp = _solve_at_z(z0 + 0.5 * (z_top - z0))
+        if (
+            "clipped_shoulder_min" in rp.clip_notes
+            and rp.servo_raw.shoulder < float(config.NEUTRAL_SHOULDER)
+            and r_start.servo_raw.shoulder <= 0
+        ):
+            print(
+                "NOTE: Mid-path shoulder may clamp at min; elbow does most lift from this neutral. "
+                "Try --pull-back-mm if you need more shoulder range."
+            )
+
+    if args.dry_run:
+        for i, zq in enumerate(zs_path):
+            print(_fmt_line(_solve_at_z(zq), zq, f"{i+1:03d}"))
+        print("dry-run: no serial motion.")
+        return 0
+
+    arm = ArmSerial(port=args.port)
+    controller = RobotController(serial=arm)
+    controller.connect()
+    try:
+        if not controller.ping():
+            print("PING failed - check USB port and firmware.", file=sys.stderr)
+            return 1
+        print("PING ok. Sending NEUTRAL (firmware pose = model q=0)…")
+        controller.neutral()
+        time.sleep(max(0.25, delay * 0.5))
+
+        for i, zq in enumerate(zs_path):
+            r = _solve_at_z(zq)
+            print(_fmt_line(r, zq, f"{i+1:03d}/{len(zs_path)}"))
+            if not r.ik.ok:
+                print("ABORT: IK failed mid-path.", file=sys.stderr)
+                controller.neutral()
+                return 2
+            controller.send_servo(r.servo_clamped)
+            time.sleep(delay)
+
+        print("Returning to NEUTRAL…")
+        controller.neutral()
+        time.sleep(max(0.25, delay * 0.5))
     finally:
         controller.close()
 
@@ -736,6 +914,42 @@ def build_parser() -> argparse.ArgumentParser:
     ikv2.add_argument("--prefer", choices=("elbow_up", "elbow_down"), default="elbow_up")
     ikv2.add_argument("--dry-run", action="store_true")
     ikv2.set_defaults(func=cmd_ik_servo_vertical_line)
+
+    rc = sub.add_parser(
+        "raise-camera",
+        help="slow vertical line from NEUTRAL: fixed x + base yaw, +z scan; wrist stab keeps camera level",
+    )
+    rc.add_argument("--port", default=config.SERIAL_DEFAULT_PORT)
+    rc.add_argument(
+        "--delay-s",
+        type=float,
+        default=0.9,
+        help="seconds between poses (default: 0.9, slower than ik-servo-vertical)",
+    )
+    rc.add_argument("--step-mm", type=float, default=2.0, help="z interpolation step (default: 2)")
+    rc.add_argument("--scan-mm", type=float, default=0.5, help="coarse scan for z_top (default: 0.5)")
+    rc.add_argument("--x-mm", type=float, default=None, help="fixed plane x mm (default: FK(0,0) tip x)")
+    rc.add_argument(
+        "--pull-back-mm",
+        type=float,
+        default=0.0,
+        help="subtract from x (tip closer to base)",
+    )
+    rc.add_argument(
+        "--return-down",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="trace back to start z after peak (default: true)",
+    )
+    rc.add_argument("--prefer", choices=("elbow_up", "elbow_down"), default="elbow_up")
+    rc.add_argument(
+        "--wrist-stab",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="level camera using motion_config_v1 (DESIRED_CAMERA_PITCH_RAD, etc.); use --no-wrist-stab to fix wrist at model 0",
+    )
+    rc.add_argument("--dry-run", action="store_true")
+    rc.set_defaults(func=cmd_raise_camera_line)
 
     return p
 

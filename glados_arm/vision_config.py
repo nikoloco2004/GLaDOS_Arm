@@ -90,7 +90,8 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.052
-MAX_Z_STEP_MM = 0.85
+# Per-frame cap on image-Y -> target_z_mm (IK vertical). Too small = shoulder/elbow barely move via IK.
+MAX_Z_STEP_MM = 6.0
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.25
 
@@ -113,9 +114,9 @@ DIST_SIGN_Z = 1.0
 DIST_Z_MM_PER_PX = 0.15
 DIST_Z_MAX_STEP_MM = 1.0
 
-# Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
-TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 1.0
-TRACK_SHOULDER_ASSIST_MAX_DEG = 5
+# Extra shoulder engagement in IK mode (applied on top of IK shoulder command; uses corr_y_ik).
+TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 4.0
+TRACK_SHOULDER_ASSIST_MAX_DEG = 18
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
@@ -128,12 +129,12 @@ ZERR_SHOULDER_ASSIST_ENABLE = False
 ZERR_SHOULDER_DEG_PER_MM = 0.10
 ZERR_SHOULDER_MAX_DEG = 8
 ZERR_SIGN_SHOULDER = 1.0
-# Elbow assist in IK mode for vertical compensation.
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 2.0
-TRACK_ELBOW_ASSIST_MAX_DEG = 10
-ELBOW_SMOOTH_ALPHA = 0.06
-ELBOW_MAX_STEP_PER_FRAME_DEG = 1
-ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 2
+# Elbow assist in IK mode for vertical compensation (uses corr_y_ik).
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 5.0
+TRACK_ELBOW_ASSIST_MAX_DEG = 22
+ELBOW_SMOOTH_ALPHA = 0.12
+ELBOW_MAX_STEP_PER_FRAME_DEG = 3
+ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 4
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 6

@@ -533,6 +533,8 @@ def run_tracking(
                             corr_y_ik = sgn * min_v
                 else:
                     corr_y_ik = corr_y_pre_eng
+                # Wrist still uses engaged corr for soft lock-in; shoulder/elbow assist use the same
+                # vertical signal as IK (corr_y_ik) so they move immediately, not only after engage≈1.
                 wrist_cmd = (
                     float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
                     * corr_y_ctrl
@@ -561,7 +563,7 @@ def run_tracking(
                 shoulder_assist_deg = int(
                     round(
                         float(getattr(vc, "SIGN_ERROR_Y_SHOULDER", 1.0))
-                        * corr_y_ctrl
+                        * corr_y_ik
                         * float(getattr(vc, "TRACK_SHOULDER_ASSIST_DEG_PER_NORM", 0.0))
                     )
                 )
@@ -570,7 +572,7 @@ def run_tracking(
                 elbow_assist_deg = int(
                     round(
                         float(getattr(vc, "SIGN_ERROR_Y_ELBOW", 1.0))
-                        * corr_y_ctrl
+                        * corr_y_ik
                         * float(getattr(vc, "TRACK_ELBOW_ASSIST_DEG_PER_NORM", 0.0))
                     )
                 )

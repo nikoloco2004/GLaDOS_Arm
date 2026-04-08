@@ -42,11 +42,6 @@ COLOR_MODE = "bgr"
 # - "proportional": direct neutral+delta servo commands (legacy mode)
 CONTROL_MODE = "ik"
 
-# Temporary: freeze horizontal (base / image X) and wrist while debugging shoulder+elbow.
-# When True, corr_x is forced to 0 (no base step, no x_mm target nudge) and wrist stays at NEUTRAL_WRIST.
-TEMP_DISABLE_X_AXIS_TRACKING = True
-TEMP_DISABLE_WRIST_TRACKING = True
-
 # IK live-target tuning (used when CONTROL_MODE == "ik")
 # Image X correction (normalized) -> base yaw delta (rad/frame)
 TRACK_BASE_RAD_PER_NORM = 0.09
@@ -70,28 +65,7 @@ BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
 TRACK_Z_MM_PER_NORM = 2.2
 # Vertical Y->Z controller mode: "p" (legacy proportional) or "pid".
 Y_Z_CTRL_MODE = "pid"
-# When True: image Y integrates target_z_mm (IK plane) — classic vertical IK.
-# When False: no Z from image Y; use VERTICAL_Y_PID (degrees) split across wrist+shoulder+elbow in tandem.
-VERTICAL_IK_Z_FROM_IMAGE_ENABLE = False
-# Tandem vertical PID (degrees total before ratio split). Tune for smooth/accurate Y tracking.
-VERTICAL_Y_PID_KP = 10.0
-VERTICAL_Y_PID_KI = 0.08
-VERTICAL_Y_PID_KD = 1.8
-VERTICAL_Y_PID_I_CLAMP = 6.0
-VERTICAL_Y_PID_D_ALPHA = 0.4
-VERTICAL_Y_PID_MAX_DEG = 16.0
-VERTICAL_Y_PID_RESET_ON_LOSS = True
-# How the PID output (deg) is shared across joints (same sign as wrist was using).
-VERTICAL_Y_WRIST_RATIO = 0.34
-VERTICAL_Y_SHOULDER_RATIO = 0.33
-VERTICAL_Y_ELBOW_RATIO = 0.33
-# Tandem elbow: by default scale by FIRST_FIND_BIAS_ELBOW/FIRST_FIND_BIAS_SHOULDER so elbow servo
-# moves with the same relative sense as first-find (shoulder + / elbow - on this arm). Override with
-# VERTICAL_Y_ELBOW_FOLLOW_FIRST_FIND_BIAS = False and tune VERTICAL_Y_ELBOW_SIGN (+/-1) if needed.
-VERTICAL_Y_ELBOW_FOLLOW_FIRST_FIND_BIAS = True
-VERTICAL_Y_ELBOW_SIGN = 1.0
-# PID tuning for vertical correction (output in mm/frame, then clamped by MAX_Z_STEP_MM).
-# Used only when VERTICAL_IK_Z_FROM_IMAGE_ENABLE is True.
+# PID tuning for vertical correction: image Y error -> target_z_mm delta (mm/frame), then clamped by MAX_Z_STEP_MM.
 Y_PID_KP = 0.82
 Y_PID_KI = 0.006
 Y_PID_KD = 0.65
@@ -159,7 +133,6 @@ TRACK_ELBOW_ASSIST_DEG_PER_NORM = 2.0
 TRACK_ELBOW_ASSIST_MAX_DEG = 10
 ELBOW_SMOOTH_ALPHA = 0.06
 ELBOW_MAX_STEP_PER_FRAME_DEG = 1
-# Applied after IK solve (non-tandem only). Tandem vertical PID bypasses this so elbow keeps up with shoulder.
 ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 2
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.

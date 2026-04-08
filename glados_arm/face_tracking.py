@@ -311,19 +311,7 @@ def run_tracking(
         print(f"Invalid color mode '{mode}', using 'bgr'.", flush=True)
         mode = "bgr"
     detect_every = max(1, int(getattr(vc, "DETECT_EVERY_N_FRAMES", 1)))
-    use_vert_tandem = (ctl == "ik") and (
-        not bool(getattr(vc, "VERTICAL_IK_Z_FROM_IMAGE_ENABLE", True))
-    )
     print(f"Color mode: {mode} | detect_every_n_frames={detect_every} | control_mode={ctl}", flush=True)
-    if use_vert_tandem:
-        print(
-            "Vertical: image→Z target OFF; using VERTICAL_Y_PID on wrist+shoulder+elbow (tune vision_config).",
-            flush=True,
-        )
-    if bool(getattr(vc, "TEMP_DISABLE_X_AXIS_TRACKING", False)):
-        print("TEMP: horizontal (base / X) tracking disabled — vision_config.TEMP_DISABLE_X_AXIS_TRACKING", flush=True)
-    if bool(getattr(vc, "TEMP_DISABLE_WRIST_TRACKING", False)):
-        print("TEMP: wrist tracking disabled — vision_config.TEMP_DISABLE_WRIST_TRACKING", flush=True)
     print(
         "Tracking: Ctrl+C to stop. Picamera2 + OpenCV; horizontal→base, vertical→shoulder/elbow.",
         flush=True,
@@ -384,15 +372,6 @@ def run_tracking(
     y_pid_i = 0.0
     y_pid_prev_e = 0.0
     y_pid_d = 0.0
-    y_vert_pid_i = 0.0
-    y_vert_prev_e = 0.0
-    y_vert_d = 0.0
-    y_vert_out_deg = 0.0
-    # Tandem PID outputs fractional deg/frame; int(round(ratio)) often == 0. Carry remainder so
-    # shoulder/elbow/wrist still move when the command is small.
-    tandem_sh_rem = 0.0
-    tandem_el_rem = 0.0
-    tandem_wr_rem = 0.0
     prev_had_face = False
     first_find_phase = "idle"
     first_find_ramp = 0.0
@@ -473,9 +452,6 @@ def run_tracking(
                     if bool(getattr(vc, "FIRST_FIND_EXTEND_ENABLE", False)):
                         first_find_phase = "to_quarter"
                         first_find_ramp = 0.0
-                y_vert_out_deg = 0.0
-                d_sh_y = 0
-                d_el_y = 0
                 last_face_seen_t = now_t
                 no_face_neutral_sent = False
                 face_lock_frames += 1
@@ -557,71 +533,57 @@ def run_tracking(
                             corr_y_ik = sgn * min_v
                 else:
                     corr_y_ik = corr_y_pre_eng
-                temp_disable_x = bool(getattr(vc, "TEMP_DISABLE_X_AXIS_TRACKING", False))
-                temp_disable_wrist = bool(getattr(vc, "TEMP_DISABLE_WRIST_TRACKING", False))
-                if temp_disable_x:
-                    corr_x_pre_eng = 0.0
-                    corr_x_ctrl = 0.0
-                if not use_vert_tandem:
-                    wrist_cmd = (
-                        float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
+                wrist_cmd = (
+                    float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
+                    * corr_y_ctrl
+                    * float(getattr(vc, "TRACK_WRIST_DEG_PER_NORM", 0.8))
+                )
+                wrist_trim_deg = int(round(wrist_cmd))
+                wrist_min_step = max(0, int(getattr(vc, "TRACK_WRIST_MIN_STEP_DEG", 0)))
+                if wrist_trim_deg == 0 and abs(corr_y_ctrl) > 1e-6 and wrist_min_step > 0:
+                    wrist_trim_deg = wrist_min_step if wrist_cmd > 0.0 else -wrist_min_step
+                wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
+                wrist_trim_deg = max(-wrist_max_trim, min(wrist_max_trim, wrist_trim_deg))
+                wrist_alpha = _clamp(float(getattr(vc, "WRIST_SMOOTH_ALPHA", 0.25)), 0.0, 1.0)
+                wrist_trim_state = (1.0 - wrist_alpha) * wrist_trim_state + wrist_alpha * float(wrist_trim_deg)
+                wrist_trim_deg = int(round(wrist_trim_state))
+                wrist_step_max = max(1, int(getattr(vc, "WRIST_MAX_STEP_PER_FRAME_DEG", 4)))
+                wrist_trim_deg = int(
+                    round(
+                        _step_toward(
+                            float(wrist_trim_last),
+                            float(wrist_trim_deg),
+                            float(wrist_step_max),
+                        )
+                    )
+                )
+                wrist_trim_last = wrist_trim_deg
+                shoulder_assist_deg = int(
+                    round(
+                        float(getattr(vc, "SIGN_ERROR_Y_SHOULDER", 1.0))
                         * corr_y_ctrl
-                        * float(getattr(vc, "TRACK_WRIST_DEG_PER_NORM", 0.8))
+                        * float(getattr(vc, "TRACK_SHOULDER_ASSIST_DEG_PER_NORM", 0.0))
                     )
-                    wrist_trim_deg = int(round(wrist_cmd))
-                    wrist_min_step = max(0, int(getattr(vc, "TRACK_WRIST_MIN_STEP_DEG", 0)))
-                    if wrist_trim_deg == 0 and abs(corr_y_ctrl) > 1e-6 and wrist_min_step > 0:
-                        wrist_trim_deg = wrist_min_step if wrist_cmd > 0.0 else -wrist_min_step
-                    wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
-                    wrist_trim_deg = max(-wrist_max_trim, min(wrist_max_trim, wrist_trim_deg))
-                    wrist_alpha = _clamp(float(getattr(vc, "WRIST_SMOOTH_ALPHA", 0.25)), 0.0, 1.0)
-                    wrist_trim_state = (1.0 - wrist_alpha) * wrist_trim_state + wrist_alpha * float(wrist_trim_deg)
-                    wrist_trim_deg = int(round(wrist_trim_state))
-                    wrist_step_max = max(1, int(getattr(vc, "WRIST_MAX_STEP_PER_FRAME_DEG", 4)))
-                    wrist_trim_deg = int(
-                        round(
-                            _step_toward(
-                                float(wrist_trim_last),
-                                float(wrist_trim_deg),
-                                float(wrist_step_max),
-                            )
-                        )
+                )
+                shoulder_assist_max = max(0, int(getattr(vc, "TRACK_SHOULDER_ASSIST_MAX_DEG", 0)))
+                shoulder_assist_deg = max(-shoulder_assist_max, min(shoulder_assist_max, shoulder_assist_deg))
+                elbow_assist_deg = int(
+                    round(
+                        float(getattr(vc, "SIGN_ERROR_Y_ELBOW", 1.0))
+                        * corr_y_ctrl
+                        * float(getattr(vc, "TRACK_ELBOW_ASSIST_DEG_PER_NORM", 0.0))
                     )
-                    wrist_trim_last = wrist_trim_deg
-                    shoulder_assist_deg = int(
-                        round(
-                            float(getattr(vc, "SIGN_ERROR_Y_SHOULDER", 1.0))
-                            * corr_y_ctrl
-                            * float(getattr(vc, "TRACK_SHOULDER_ASSIST_DEG_PER_NORM", 0.0))
-                        )
-                    )
-                    shoulder_assist_max = max(0, int(getattr(vc, "TRACK_SHOULDER_ASSIST_MAX_DEG", 0)))
-                    shoulder_assist_deg = max(-shoulder_assist_max, min(shoulder_assist_max, shoulder_assist_deg))
-                    elbow_assist_deg = int(
-                        round(
-                            float(getattr(vc, "SIGN_ERROR_Y_ELBOW", 1.0))
-                            * corr_y_ctrl
-                            * float(getattr(vc, "TRACK_ELBOW_ASSIST_DEG_PER_NORM", 0.0))
-                        )
-                    )
-                    elbow_assist_max = max(0, int(getattr(vc, "TRACK_ELBOW_ASSIST_MAX_DEG", 0)))
-                    elbow_assist_deg = max(-elbow_assist_max, min(elbow_assist_max, elbow_assist_deg))
-                    elbow_alpha = _clamp(float(getattr(vc, "ELBOW_SMOOTH_ALPHA", 0.25)), 0.0, 1.0)
-                    elbow_assist_state = (1.0 - elbow_alpha) * elbow_assist_state + elbow_alpha * float(elbow_assist_deg)
-                    elbow_assist_deg = int(round(elbow_assist_state))
-                    elbow_step_max = max(1, int(getattr(vc, "ELBOW_MAX_STEP_PER_FRAME_DEG", 3)))
-                    elbow_assist_deg = int(
-                        round(_step_toward(float(elbow_assist_last), float(elbow_assist_deg), float(elbow_step_max)))
-                    )
-                    elbow_assist_last = elbow_assist_deg
-                else:
-                    wrist_trim_deg = 0
-                    shoulder_assist_deg = 0
-                    elbow_assist_deg = 0
-                if temp_disable_wrist:
-                    wrist_trim_deg = 0
-                    wrist_trim_last = 0
-                    wrist_trim_state = 0.0
+                )
+                elbow_assist_max = max(0, int(getattr(vc, "TRACK_ELBOW_ASSIST_MAX_DEG", 0)))
+                elbow_assist_deg = max(-elbow_assist_max, min(elbow_assist_max, elbow_assist_deg))
+                elbow_alpha = _clamp(float(getattr(vc, "ELBOW_SMOOTH_ALPHA", 0.25)), 0.0, 1.0)
+                elbow_assist_state = (1.0 - elbow_alpha) * elbow_assist_state + elbow_alpha * float(elbow_assist_deg)
+                elbow_assist_deg = int(round(elbow_assist_state))
+                elbow_step_max = max(1, int(getattr(vc, "ELBOW_MAX_STEP_PER_FRAME_DEG", 3)))
+                elbow_assist_deg = int(
+                    round(_step_toward(float(elbow_assist_last), float(elbow_assist_deg), float(elbow_step_max)))
+                )
+                elbow_assist_last = elbow_assist_deg
 
                 if ctl == "ik":
                     shoulder_dist_assist_deg = 0
@@ -693,54 +655,7 @@ def run_tracking(
                     y_ctrl_mode = str(getattr(vc, "Y_Z_CTRL_MODE", "p")).strip().lower()
                     ye = float(vc.SIGN_ERROR_Y_SHOULDER) * y_for_z
                     z_step = 0.0
-                    if use_vert_tandem:
-                        ykp = float(getattr(vc, "VERTICAL_Y_PID_KP", 10.0))
-                        yki = float(getattr(vc, "VERTICAL_Y_PID_KI", 0.08))
-                        ykd = float(getattr(vc, "VERTICAL_Y_PID_KD", 1.8))
-                        yi_clamp = max(0.0, float(getattr(vc, "VERTICAL_Y_PID_I_CLAMP", 6.0)))
-                        yd_alpha = _clamp(float(getattr(vc, "VERTICAL_Y_PID_D_ALPHA", 0.4)), 0.0, 1.0)
-                        y_vert_pid_i += ye
-                        y_vert_pid_i = _clamp(y_vert_pid_i, -yi_clamp, yi_clamp)
-                        y_d_raw = ye - y_vert_prev_e
-                        y_vert_d = (1.0 - yd_alpha) * y_vert_d + yd_alpha * y_d_raw
-                        u_unclamped = ykp * ye + yki * y_vert_pid_i + ykd * y_vert_d
-                        max_deg = float(getattr(vc, "VERTICAL_Y_PID_MAX_DEG", 16.0))
-                        y_vert_out_deg = _clamp(u_unclamped, -max_deg, max_deg)
-                        z_tmp = _clamp(u_unclamped, -max_deg, max_deg)
-                        if abs(u_unclamped - z_tmp) > 1e-9 and abs(ye) > 1e-9:
-                            if (u_unclamped > 0.0 and ye > 0.0) or (u_unclamped < 0.0 and ye < 0.0):
-                                y_vert_pid_i -= ye
-                        y_vert_prev_e = ye
-                        rw = float(getattr(vc, "VERTICAL_Y_WRIST_RATIO", 0.34))
-                        rs = float(getattr(vc, "VERTICAL_Y_SHOULDER_RATIO", 0.33))
-                        re = float(getattr(vc, "VERTICAL_Y_ELBOW_RATIO", 0.33))
-                        elbow_sign = float(getattr(vc, "VERTICAL_Y_ELBOW_SIGN", 1.0))
-                        fb_sh = float(getattr(vc, "FIRST_FIND_BIAS_SHOULDER_DEG", 10.0))
-                        fb_el = float(getattr(vc, "FIRST_FIND_BIAS_ELBOW_DEG", -8.0))
-                        if bool(getattr(vc, "VERTICAL_Y_ELBOW_FOLLOW_FIRST_FIND_BIAS", True)):
-                            elbow_scale = (fb_el / fb_sh) if abs(fb_sh) > 1e-6 else -1.0
-                        else:
-                            elbow_scale = 1.0
-                        f_sh = float(y_vert_out_deg * rs)
-                        f_el = float(y_vert_out_deg * re * elbow_scale * elbow_sign)
-                        tandem_sh_rem += f_sh
-                        tandem_el_rem += f_el
-                        d_sh_y = int(round(tandem_sh_rem))
-                        tandem_sh_rem -= float(d_sh_y)
-                        d_el_y = int(round(tandem_el_rem))
-                        tandem_el_rem -= float(d_el_y)
-                        if temp_disable_wrist:
-                            tandem_wr_rem = 0.0
-                            wrist_trim_deg = 0
-                        else:
-                            f_wr = float(y_vert_out_deg * rw)
-                            tandem_wr_rem += f_wr
-                            wt_raw = int(round(tandem_wr_rem))
-                            wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
-                            wt = max(-wrist_max_trim, min(wrist_max_trim, wt_raw))
-                            tandem_wr_rem -= float(wt)
-                            wrist_trim_deg = wt
-                    elif y_ctrl_mode == "pid":
+                    if y_ctrl_mode == "pid":
                         ykp = float(getattr(vc, "Y_PID_KP", 1.8))
                         yki = float(getattr(vc, "Y_PID_KI", 0.03))
                         ykd = float(getattr(vc, "Y_PID_KD", 0.8))
@@ -769,8 +684,7 @@ def run_tracking(
                         -float(getattr(vc, "MAX_Z_STEP_MM", 10.0)),
                         float(getattr(vc, "MAX_Z_STEP_MM", 10.0)),
                     )
-                    if not use_vert_tandem:
-                        target_z_mm += z_step
+                    target_z_mm += z_step
 
                     x_step = (
                         vc.SIGN_ERROR_X_BASE * corr_x_ctrl * float(getattr(vc, "TRACK_X_MM_PER_NORM", 0.0))
@@ -874,12 +788,11 @@ def run_tracking(
                     if vertical_ok and solved.ik.ok:
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=solved.servo_clamped.elbow + elbow_assist_deg + d_el_y,
+                            elbow=solved.servo_clamped.elbow + elbow_assist_deg,
                             base=solved.servo_clamped.base,
                             shoulder=solved.servo_clamped.shoulder
                             + shoulder_assist_deg
-                            + shoulder_dist_assist_deg
-                            + d_sh_y,
+                            + shoulder_dist_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
                         last_valid_cmd = cmd
@@ -887,12 +800,11 @@ def run_tracking(
                         # Accept clamped command so base/x can still move even when vertical chain clips.
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=solved.servo_clamped.elbow + elbow_assist_deg + d_el_y,
+                            elbow=solved.servo_clamped.elbow + elbow_assist_deg,
                             base=solved.servo_clamped.base,
                             shoulder=solved.servo_clamped.shoulder
                             + shoulder_assist_deg
-                            + shoulder_dist_assist_deg
-                            + d_sh_y,
+                            + shoulder_dist_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
                         last_valid_cmd = cmd
@@ -900,23 +812,21 @@ def run_tracking(
                         # Preserve horizontal/base correction even when holding vertical state.
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=last_valid_cmd.elbow + elbow_assist_deg + d_el_y,
+                            elbow=last_valid_cmd.elbow + elbow_assist_deg,
                             base=solved.servo_clamped.base,
                             shoulder=last_valid_cmd.shoulder
                             + shoulder_assist_deg
-                            + shoulder_dist_assist_deg
-                            + d_sh_y,
+                            + shoulder_dist_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
                     else:
                         cmd = ServoCommand(
                             wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=solved.servo_clamped.elbow + elbow_assist_deg + d_el_y,
+                            elbow=solved.servo_clamped.elbow + elbow_assist_deg,
                             base=solved.servo_clamped.base,
                             shoulder=solved.servo_clamped.shoulder
                             + shoulder_assist_deg
-                            + shoulder_dist_assist_deg
-                            + d_sh_y,
+                            + shoulder_dist_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
 
@@ -944,22 +854,17 @@ def run_tracking(
                             shoulder=cmd.shoulder + shoulder_zerr_assist_deg,
                         )
                         cmd, _ = clamp_servo(cmd)
-                    # Final elbow rate limit: suppresses IK target jumps in classic Z-from-image mode.
-                    # Tandem vertical PID already outputs small per-frame deg splits + accumulators; capping
-                    # elbow at ELBOW_CMD_MAX_STEP_PER_FRAME_DEG here starves the joint vs shoulder (no cap).
+                    # Final elbow command rate-limit to suppress IK-induced snapping.
                     elbow_cmd_step = max(1, int(getattr(vc, "ELBOW_CMD_MAX_STEP_PER_FRAME_DEG", 2)))
-                    if use_vert_tandem:
-                        elbow_cmd = cmd.elbow
-                    else:
-                        elbow_cmd = int(
-                            round(
-                                _step_toward(
-                                    float(elbow_cmd_last),
-                                    float(cmd.elbow),
-                                    float(elbow_cmd_step),
-                                )
+                    elbow_cmd = int(
+                        round(
+                            _step_toward(
+                                float(elbow_cmd_last),
+                                float(cmd.elbow),
+                                float(elbow_cmd_step),
                             )
                         )
+                    )
                     cmd = ServoCommand(
                         wrist=cmd.wrist,
                         elbow=elbow_cmd,
@@ -1042,9 +947,7 @@ def run_tracking(
                             2,
                         )
                         y_ol = (
-                            f"y_for_z={y_for_z:+.3f} vert_pid_deg={y_vert_out_deg:+5.1f}"
-                            if use_vert_tandem
-                            else f"y_for_z={y_for_z:+.3f} (xmix={float(getattr(vc, 'TRACK_Z_FROM_X_MIX', 0.0)):+.2f})"
+                            f"y_for_z={y_for_z:+.3f} (xmix={float(getattr(vc, 'TRACK_Z_FROM_X_MIX', 0.0)):+.2f})"
                         )
                         cv2.putText(
                             vis,
@@ -1088,9 +991,6 @@ def run_tracking(
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
             else:
-                tandem_sh_rem = 0.0
-                tandem_el_rem = 0.0
-                tandem_wr_rem = 0.0
                 first_find_phase = "idle"
                 first_find_ramp = 0.0
                 face_lock_frames = 0
@@ -1108,10 +1008,6 @@ def run_tracking(
                     y_pid_i = 0.0
                     y_pid_prev_e = 0.0
                     y_pid_d = 0.0
-                if bool(getattr(vc, "VERTICAL_Y_PID_RESET_ON_LOSS", True)):
-                    y_vert_pid_i = 0.0
-                    y_vert_prev_e = 0.0
-                    y_vert_d = 0.0
                 no_face_delay_s = max(0.0, float(getattr(vc, "NO_FACE_RETURN_DELAY_S", 30.0)))
                 face_missing_for_s = max(0.0, now_t - last_face_seen_t)
                 should_return_no_face = face_missing_for_s >= no_face_delay_s

@@ -371,6 +371,9 @@ def run_tracking(
     prev_had_face = False
     first_find_phase = "idle"
     first_find_ramp = 0.0
+    # Fractional deg carry for IK shoulder/elbow vertical assist (int(round(gain*e)) was often 0).
+    ik_sh_accum = 0.0
+    ik_el_accum = 0.0
 
     try:
         while True:
@@ -528,7 +531,9 @@ def run_tracking(
                                 sgn = 1.0
                             corr_y_ik = sgn * min_v
                 else:
-                    corr_y_ik = corr_y_pre_eng
+                    # Tighter deadband on raw vertical error so the chain still reacts before the face leaves frame.
+                    vdb = float(getattr(vc, "TRACK_DEADBAND_VERTICAL", 0.01))
+                    corr_y_ik = _apply_deadband(err_y, vdb)
                 # Wrist: engaged corr. IK vertical: shoulder/elbow deg from corr_y_ik (no Z-plane integration).
                 wrist_cmd = (
                     float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
@@ -558,23 +563,29 @@ def run_tracking(
                 if ctl == "ik":
                     # Same proportional law as legacy "proportional" mode, but applied on top of IK solve.
                     sh_max = max(0, int(getattr(vc, "TRACK_SHOULDER_ASSIST_MAX_DEG", 35)))
-                    shoulder_assist_deg = int(
-                        round(
-                            float(getattr(vc, "SIGN_ERROR_Y_SHOULDER", 1.0))
-                            * corr_y_ik
-                            * float(getattr(vc, "TRACK_GAIN_SHOULDER_DEG", 2.0))
-                        )
+                    raw_sh = (
+                        float(getattr(vc, "SIGN_ERROR_Y_SHOULDER", 1.0))
+                        * corr_y_ik
+                        * float(getattr(vc, "TRACK_GAIN_SHOULDER_DEG", 2.0))
                     )
-                    shoulder_assist_deg = max(-sh_max, min(sh_max, shoulder_assist_deg))
+                    ik_sh_accum += raw_sh
+                    st = int(round(ik_sh_accum))
+                    ik_sh_accum -= float(st)
+                    shoulder_assist_deg = max(-sh_max, min(sh_max, st))
+                    if shoulder_assist_deg != st:
+                        ik_sh_accum += float(st - shoulder_assist_deg)
                     el_max = max(0, int(getattr(vc, "TRACK_ELBOW_ASSIST_MAX_DEG", 35)))
-                    elbow_target = int(
-                        round(
-                            float(getattr(vc, "SIGN_ERROR_Y_ELBOW", 1.0))
-                            * corr_y_ik
-                            * float(getattr(vc, "TRACK_GAIN_ELBOW_DEG", 2.0))
-                        )
+                    raw_el = (
+                        float(getattr(vc, "SIGN_ERROR_Y_ELBOW", 1.0))
+                        * corr_y_ik
+                        * float(getattr(vc, "TRACK_GAIN_ELBOW_DEG", 2.0))
                     )
-                    elbow_target = max(-el_max, min(el_max, elbow_target))
+                    ik_el_accum += raw_el
+                    et = int(round(ik_el_accum))
+                    ik_el_accum -= float(et)
+                    elbow_target = max(-el_max, min(el_max, et))
+                    if elbow_target != et:
+                        ik_el_accum += float(et - elbow_target)
                     elbow_step_max = max(1, int(getattr(vc, "ELBOW_MAX_STEP_PER_FRAME_DEG", 4)))
                     elbow_assist_deg = int(
                         round(
@@ -953,6 +964,8 @@ def run_tracking(
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
             else:
+                ik_sh_accum = 0.0
+                ik_el_accum = 0.0
                 first_find_phase = "idle"
                 first_find_ramp = 0.0
                 face_lock_frames = 0

@@ -77,7 +77,8 @@ TARGET_Z_MAX_MM = 170.0
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.052
 MAX_X_STEP_MM = 3.0
-FACE_CENTER_ALPHA = 0.25
+# Higher = face bbox center tracks faster (less lag when you move up/down in frame).
+FACE_CENTER_ALPHA = 0.52
 
 # Distance control from face box size (applies in IK mode).
 # We estimate relative distance from detected face width in pixels:
@@ -98,7 +99,7 @@ DIST_Z_MM_PER_PX = 0.0
 DIST_Z_MAX_STEP_MM = 0.0
 
 # IK vertical: clamp on top of TRACK_GAIN_* * corr_y_ik (deg per unit normalized error).
-TRACK_SHOULDER_ASSIST_MAX_DEG = 28
+TRACK_SHOULDER_ASSIST_MAX_DEG = 35
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
@@ -111,9 +112,10 @@ ZERR_SHOULDER_ASSIST_ENABLE = False
 ZERR_SHOULDER_DEG_PER_MM = 0.10
 ZERR_SHOULDER_MAX_DEG = 8
 ZERR_SIGN_SHOULDER = 1.0
-TRACK_ELBOW_ASSIST_MAX_DEG = 28
-ELBOW_MAX_STEP_PER_FRAME_DEG = 5
-ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 5
+TRACK_ELBOW_ASSIST_MAX_DEG = 35
+ELBOW_MAX_STEP_PER_FRAME_DEG = 8
+# Must be >= typical assist step or the elbow never reaches the commanded assist.
+ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 10
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 6
@@ -152,8 +154,10 @@ NO_FACE_WRIST_RETURN_DEG_PER_FRAME = 4.0
 NO_FACE_ELBOW_RETURN_DEG_PER_FRAME = 4.0
 NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME = 3.0
 
-# Normalized error deadband (0..1) — ignore jitter inside this band
-TRACK_DEADBAND = 0.03
+# Normalized error deadband (0..1) — ignore jitter inside this band (horizontal / wrist / ramp path).
+TRACK_DEADBAND = 0.02
+# IK vertical shoulder+elbow: raw err_y deadband (smaller so the arm tracks before the face drifts out).
+TRACK_DEADBAND_VERTICAL = 0.01
 
 # Adaptive ramping:
 # Start with gentle correction, then ramp up if target stays outside center for multiple frames.
@@ -169,9 +173,9 @@ RAMP_MAX = 1.2               # max boosted multiplier
 # Horizontal: positive error_x = face to the right of frame center → increase base if SIGN_BASE matches.
 TRACK_GAIN_BASE_DEG = 2.5
 
-# IK + proportional: vertical chain (deg per unit normalized Y error after deadband)
-TRACK_GAIN_SHOULDER_DEG = 6.0
-TRACK_GAIN_ELBOW_DEG = 7.0
+# IK + proportional: vertical chain (deg per unit normalized Y error)
+TRACK_GAIN_SHOULDER_DEG = 14.0
+TRACK_GAIN_ELBOW_DEG = 16.0
 
 # Sign flips if your mount/camera orientation reverses left/right or up/down
 # Tuned for your current mechanical/camera installation:

@@ -71,10 +71,10 @@ BASE_PID_RESET_ON_LOSS = True
 BASE_PID_ZERO_CROSS_BRAKE = 0.28
 # Two-zone damping near center: keep far response, suppress near-center overshoot.
 BASE_PID_NEAR_ERROR = 0.14
-BASE_PID_PREBRAKE_ERROR = 0.26
-BASE_PID_PREBRAKE_SCALE = 0.50
-BASE_PID_NEAR_STEP_SCALE = 0.22
-BASE_PID_ZERO_CROSS_HOLD_FRAMES = 2
+BASE_PID_PREBRAKE_ERROR = 0.18
+BASE_PID_PREBRAKE_SCALE = 0.72
+BASE_PID_NEAR_STEP_SCALE = 0.45
+BASE_PID_ZERO_CROSS_HOLD_FRAMES = 0
 # Image Y correction (normalized) -> vertical target z delta (mm/frame) when Y_Z_CTRL_MODE == "p".
 # Direct P on error each frame (no integral windup) — use this instead of PID when vertical feels "zoomy".
 TRACK_Z_MM_PER_NORM = 3.4

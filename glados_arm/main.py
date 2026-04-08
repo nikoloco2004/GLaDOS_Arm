@@ -23,9 +23,9 @@ from .mapping import ModelJointState, ServoCommand, clamp_servo, model_to_servo,
 from .motion_smooth import (
     float_tuple_to_servo_command,
     lowpass_scalar,
-    rate_float_toward_independent,
     rate_limit_servo_deg_per_sec,
     servo_command_to_float_tuple,
+    sync_step_servo_float_toward,
     sync_step_servo_toward,
 )
 from .serial_comm import ArmSerial
@@ -806,9 +806,11 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     """
     From firmware NEUTRAL: straight vertical line in the (x,z) plane (fixed x, base yaw 0).
 
-    Default **smooth** mode: **arc-length z scheduling** (optional) so motion does not rush near
-    the top. Each control frame uses **substeps** of **independent** per-joint rate limiting
-    (raise_speed×MAX_JOINT_DPS, float) so every joint that needs to move does so together.
+    Default **smooth** mode: fixed **x**, **z** from a time schedule (arc-length optional) — that
+    is a **straight vertical line** in the kinematic plane. Each frame solves IK for **(x,z)** and
+    slews **all** servos **together** toward that pose with one coupled fraction
+    (``sync_step_servo_float_toward``), so the arm tracks the IK solution curve, not independent
+    joint ramps (which would pull the tip off the line).
 
     Wrist uses **delta_neutral** stab: level reference is neutral (q=0); q_wrist tracks the
     change in link pitch from that pose. Stab reads shoulder/elbow from the **previous
@@ -963,11 +965,15 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
         label: str,
         controller: RobotController | None,
     ) -> ServoCommand:
-        """Follow precomputed z samples; substeps of sync rate limit per frame; optional serial send."""
+        """
+        Fixed (x,z) targets from the schedule → one IK solution per frame (straight vertical line
+        in the plane). We step all joints together toward that solution with one proportional
+        fraction (sync_step_servo_float_toward), not independent joint slews — independent motion
+        breaks the coupled IK path and the tip leaves the line.
+        """
         if len(z_schedule) != n_frames + 1:
             raise ValueError("z_schedule length must be n_frames+1")
-        dt_sub = dt / float(substeps)
-        # Float degrees so sub-integer motion accumulates (integer sync each substep = no motion).
+        dt_sub = dt / float(max(1, substeps))
         cmd_f = servo_command_to_float_tuple(prev_cmd)
         for i in range(n_frames + 1):
             zq = z_schedule[i]
@@ -977,8 +983,8 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
                 print(f"ABORT: IK failed at z={zq:.2f} ({label})", file=sys.stderr)
                 raise RuntimeError("ik_fail")
             tgt = r.servo_clamped
-            for _ in range(substeps):
-                cmd_f = rate_float_toward_independent(cmd_f, tgt, dt_sub, max_dps_raise)
+            for _ in range(max(1, substeps)):
+                cmd_f = sync_step_servo_float_toward(cmd_f, tgt, dt_sub, max_dps_raise)
                 cmd = float_tuple_to_servo_command(cmd_f)
                 if controller is not None:
                     controller.send_servo(cmd)
@@ -1005,7 +1011,7 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
             f"smooth: hz={hz:.1f} dt={dt*1000:.1f}ms | up {duration_up:.1f}s ({n_up} frames) "
             f"{'+ down ' + str(round(duration_down, 1)) + 's' if bool(args.return_down) else ''} "
             f"| arc_z={use_arc} k_fine={k_fine} substeps={substeps} "
-            f"| raise_speed={raise_speed} independent-rate MAX_JOINT_DPS={max_dps_raise}"
+            f"| raise_speed={raise_speed} coupled-IK-step MAX_JOINT_DPS={max_dps_raise}"
         )
         z_sched_up = (
             _raise_camera_arc_z_schedule(z0, z_top, neutral_cmd, _solve_at_z, n_up, k_fine)
@@ -1060,7 +1066,7 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
                     controller.neutral()
                     return 2
                 step_dt = max(dt, delay * 0.5)
-                cmd_f = rate_float_toward_independent(cmd_f, r.servo_clamped, step_dt, max_dps_raise)
+                cmd_f = sync_step_servo_float_toward(cmd_f, r.servo_clamped, step_dt, max_dps_raise)
                 cmd = float_tuple_to_servo_command(cmd_f)
                 controller.send_servo(cmd)
                 time.sleep(delay)
@@ -1328,8 +1334,8 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument(
         "--raise-substeps",
         type=int,
-        default=2,
-        help="serial servo commands per outer frame (default: 2)",
+        default=1,
+        help="coupled IK steps per outer frame toward the same IK target (default: 1)",
     )
     rc.add_argument(
         "--raise-speed",

@@ -425,11 +425,15 @@ def cmd_ik_servo_test(args: argparse.Namespace) -> int:
 
 def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
     """
-    Fixed base yaw (no pan) and fixed plane x: move tip upward along +z as far as IK allows,
-    then optionally return. Wrist stays at model q_wrist=0 (neutral trim); use face tracking
-    wrist stab for true horizon hold.
+    Fixed base yaw (no pan) and fixed plane x: move tip upward along +z in the *kinematic* plane.
 
-    Scans upward in small steps to find max z, then interpolates by --step-mm with --delay-s.
+    This is **Cartesian** motion: (x,z) targets go through planar 2R IK. The resulting **servo**
+    shoulder/elbow angles are whatever solves that geometry (elbow_up branch), not a preset
+    like "shoulder 90 deg / elbow 180 deg". If NEUTRAL_ELBOW is at the elbow servo max (270),
+    many upward moves use **elbow** first; shoulder may hit SERVO_SHOULDER_MIN depending on
+    calibration (THETA*_REF, NEUTRAL_*, SHOULDER_SIGN). Use --pull-back-mm to change reach depth.
+
+    Wrist stays at model q_wrist=0. Face tracking uses separate wrist stab for horizon hold.
     """
     import time
 
@@ -506,12 +510,20 @@ def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
         )
 
     if z_top > z0 + 1e-6:
+        r_start = _solve_at_z(z0)
         rp = _solve_at_z(z0 + 0.5 * (z_top - z0))
-        if "clipped_shoulder_min" in rp.clip_notes and rp.servo_raw.shoulder < float(config.NEUTRAL_SHOULDER):
+        # Only warn when the *start* pose never asked for shoulder above min (misleading if
+        # pull-back already moves shoulder, e.g. raw_sh=9 at z0).
+        if (
+            "clipped_shoulder_min" in rp.clip_notes
+            and rp.servo_raw.shoulder < float(config.NEUTRAL_SHOULDER)
+            and r_start.servo_raw.shoulder <= 0
+        ):
             print(
-                "NOTE: IK asks for shoulder below SERVO_SHOULDER_MIN (0 deg); "
-                "hardware clamps shoulder to 0 - you mostly see elbow motion. "
-                "Try --pull-back-mm 15-30 (smaller x, tip closer to base) so shoulder can participate."
+                "NOTE: Mid-path IK wants shoulder below SERVO_SHOULDER_MIN (0 deg); "
+                "clamped to 0 there. At z0 the model did not command positive shoulder. "
+                "Try --pull-back-mm, or recalibrate NEUTRAL_* / THETA*_REF so neutral is not "
+                "shoulder-at-min + elbow-at-max (elbow then does most of the vertical lift)."
             )
 
     if args.dry_run:
@@ -684,7 +696,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     ikv2 = sub.add_parser(
         "ik-servo-vertical",
-        help="fixed base yaw + fixed x: slow vertical sweep to max +z (IK), optional return; use --dry-run first",
+        help=(
+            "Cartesian vertical line: fixed x + base yaw, sweep +z via planar IK (not fixed servo angles); "
+            "see command docstring. --dry-run first."
+        ),
     )
     ikv2.add_argument("--port", default=config.SERIAL_DEFAULT_PORT)
     ikv2.add_argument("--delay-s", type=float, default=0.65, help="seconds between poses (default: 0.65)")

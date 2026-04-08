@@ -486,8 +486,10 @@ def run_tracking(
                 use_raw_y = bool(getattr(vc, "FACE_Y_USE_RAW", False))
                 err_y = err_y_raw if use_raw_y else err_y_filt
 
-                corr_x_norm = _apply_deadband(err_x, vc.TRACK_DEADBAND)
-                corr_y_norm = _apply_deadband(err_y, vc.TRACK_DEADBAND)
+                db_x = float(getattr(vc, "TRACK_DEADBAND", 0.03))
+                db_y = float(getattr(vc, "TRACK_DEADBAND_Y", db_x))
+                corr_x_norm = _apply_deadband(err_x, db_x)
+                corr_y_norm = _apply_deadband(err_y, db_y)
                 corr_x_px = corr_x_norm * cx_img
                 corr_y_px = corr_y_norm * cy_img
                 corr_x_ctrl = corr_x_norm

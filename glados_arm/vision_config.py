@@ -61,15 +61,15 @@ BASE_PID_ZERO_CROSS_BRAKE = 0.45
 BASE_PID_NEAR_ERROR = 0.10
 BASE_PID_NEAR_STEP_SCALE = 0.55
 BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
-# Image Y correction (normalized) -> vertical target z delta (mm/frame)
-TRACK_Z_MM_PER_NORM = 2.2
-# Vertical Y->Z controller mode: "p" (legacy proportional) or "pid".
-Y_Z_CTRL_MODE = "pid"
-# PID tuning for vertical correction: image Y error -> target_z_mm delta (mm/frame), then clamped by MAX_Z_STEP_MM.
-# Higher Kp + lower deadband (below) = correct small off-center errors earlier; ZERR shoulder helps if IK favors elbow.
+# Image Y correction (normalized) -> vertical target z delta (mm/frame) when Y_Z_CTRL_MODE == "p".
+# Direct P on error each frame (no integral windup) — use this instead of PID when vertical feels "zoomy".
+TRACK_Z_MM_PER_NORM = 3.4
+# Vertical Y->Z controller mode: "p" (proportional, recommended) or "pid" (can overshoot / oscillate).
+Y_Z_CTRL_MODE = "p"
+# PID tuning (only if Y_Z_CTRL_MODE == "pid")
 Y_PID_KP = 0.58
-Y_PID_KI = 0.0032
-Y_PID_KD = 0.42
+Y_PID_KI = 0.0
+Y_PID_KD = 0.25
 Y_PID_I_CLAMP = 2.0
 Y_PID_D_ALPHA = 0.58
 Y_PID_RESET_ON_LOSS = True
@@ -91,7 +91,7 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.052
-MAX_Z_STEP_MM = 0.62
+MAX_Z_STEP_MM = 1.05
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.30
 # Use unfiltered face Y for vertical error so the arm reacts immediately (filt_cy lags by seconds).
@@ -131,7 +131,7 @@ DIST_SHOULDER_MAX_STEP_PER_FRAME_DEG = 1
 # Additional shoulder assist from measured z error (mm -> deg).
 # When IK mostly bends the elbow, this nudges shoulder so the tip actually reaches target_z.
 ZERR_SHOULDER_ASSIST_ENABLE = True
-ZERR_SHOULDER_DEG_PER_MM = 0.11
+ZERR_SHOULDER_DEG_PER_MM = 0.07
 ZERR_SHOULDER_MAX_DEG = 10
 ZERR_SIGN_SHOULDER = 1.0
 # Elbow assist in IK mode for vertical compensation.
@@ -142,13 +142,13 @@ ELBOW_MAX_STEP_PER_FRAME_DEG = 1
 ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 2
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
-LOCK_IN_FRAMES = 6
-ENGAGE_UP_PER_FRAME = 0.17
+LOCK_IN_FRAMES = 2
+ENGAGE_UP_PER_FRAME = 0.55
 ENGAGE_DOWN_PER_FRAME = 0.28
 
 # First acquisition after no-face: optional slow blend from neutral toward IK (can jerk on re-acquire).
-# On: after no-face, first re-acquire blends shoulder/elbow from neutral toward IK in two slow phases.
-FIRST_FIND_EXTEND_ENABLE = True
+# Off = full IK immediately after re-acquire (faster vertical response).
+FIRST_FIND_EXTEND_ENABLE = False
 FIRST_FIND_EXTEND_FRACTION = 0.18  # first phase stops at this fraction of (IK - neutral) on shoulder/elbow
 FIRST_FIND_TO_QUARTER_PER_FRAME = 0.016
 FIRST_FIND_TO_FULL_PER_FRAME = 0.028
@@ -161,12 +161,12 @@ FIRST_FIND_BIAS_ELBOW_DEG = -8.0
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
-TRACK_WRIST_DEG_PER_NORM = 14.0
+TRACK_WRIST_DEG_PER_NORM = 18.0
 TRACK_WRIST_MIN_STEP_DEG = 1
 TRACK_WRIST_MAX_TRIM_DEG = 95
 SIGN_ERROR_Y_WRIST = 1.0  # wrist was correct; only shoulder/elbow use inverted Y sign below
-WRIST_SMOOTH_ALPHA = 0.22
-WRIST_MAX_STEP_PER_FRAME_DEG = 1
+WRIST_SMOOTH_ALPHA = 0.42
+WRIST_MAX_STEP_PER_FRAME_DEG = 2
 
 # When no face is detected, gently settle vertical chain toward neutral so it
 # does not remain "looking up" at the last lock point.
@@ -178,8 +178,10 @@ NO_FACE_WRIST_RETURN_DEG_PER_FRAME = 4.0
 NO_FACE_ELBOW_RETURN_DEG_PER_FRAME = 4.0
 NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME = 3.0
 
-# Normalized error deadband (0..1) — ignore jitter inside this band (large values = only correct at big error).
-TRACK_DEADBAND = 0.014
+# Normalized error deadband for X (horizontal).
+TRACK_DEADBAND = 0.02
+# Y (vertical): tighter so the loop actually drives error toward zero instead of sitting in a dead zone.
+TRACK_DEADBAND_Y = 0.004
 
 # Adaptive ramping:
 # Start with gentle correction, then ramp up if target stays outside center for multiple frames.

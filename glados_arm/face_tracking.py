@@ -208,6 +208,7 @@ def run_tracking(
     height: int,
     color_mode: str | None = None,
     control_mode: str | None = None,
+    disable_y_axis: bool = False,
 ) -> int:
     try:
         from picamera2 import Picamera2  # type: ignore[import-untyped]
@@ -322,7 +323,10 @@ def run_tracking(
         print(f"Invalid color mode '{mode}', using 'bgr'.", flush=True)
         mode = "bgr"
     detect_every = max(1, int(getattr(vc, "DETECT_EVERY_N_FRAMES", 1)))
+    y_axis_disabled = bool(disable_y_axis or getattr(vc, "TRACK_DISABLE_Y_AXIS", False))
     print(f"Color mode: {mode} | detect_every_n_frames={detect_every} | control_mode={ctl}", flush=True)
+    if y_axis_disabled:
+        print("Y-axis correction disabled: base/X tuning mode (vertical chain held).", flush=True)
     print(
         "Tracking: Ctrl+C to stop. Picamera2 + OpenCV; horizontal→base, vertical→shoulder/elbow.",
         flush=True,
@@ -563,6 +567,10 @@ def run_tracking(
                 corr_y_pre_eng = corr_y_ctrl
                 corr_x_ctrl *= engage
                 corr_y_ctrl *= engage
+                if y_axis_disabled:
+                    corr_y_norm = 0.0
+                    corr_y_ctrl = 0.0
+                    corr_y_pre_eng = 0.0
                 # After lock-in, use full vertical error for IK/assists/wrist (engage only softens first N frames).
                 locked_in = face_lock_frames >= lock_need
                 corr_y_vert = corr_y_pre_eng if locked_in else corr_y_ctrl
@@ -881,6 +889,11 @@ def main(argv: list[str] | None = None) -> int:
         default=getattr(vision_config, "CONTROL_MODE", "ik"),
         help="Tracking control strategy",
     )
+    p.add_argument(
+        "--disable-y-axis",
+        action="store_true",
+        help="disable all Y/vertical correction; tune base/X only",
+    )
     args = p.parse_args(argv)
     try:
         want_preview = resolve_preview_mode(args.preview, args.no_preview)
@@ -895,6 +908,7 @@ def main(argv: list[str] | None = None) -> int:
         height=args.height,
         color_mode=args.color_mode,
         control_mode=args.control_mode,
+        disable_y_axis=args.disable_y_axis,
     )
 
 

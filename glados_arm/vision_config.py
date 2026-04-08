@@ -51,6 +51,8 @@ COLOR_MODE = "bgr"
 # - "ik": update base yaw + vertical target and solve IK every frame
 # - "proportional": direct neutral+delta servo commands (legacy mode)
 CONTROL_MODE = "ik"
+# Temporary tuning switch: disable all Y/vertical correction so only X->base is active.
+TRACK_DISABLE_Y_AXIS = False
 
 # IK live-target tuning (used when CONTROL_MODE == "ik")
 # Image X correction (normalized) -> base yaw delta (rad/frame)

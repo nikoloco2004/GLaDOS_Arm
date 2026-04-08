@@ -11,6 +11,7 @@ from collections import Counter
 
 from . import config, kinematics
 from .controller import (
+    RobotController,
     VerticalSolveResult,
     explain_assumptions,
     format_servo_line,
@@ -321,6 +322,107 @@ def cmd_ik_vertical_test(args: argparse.Namespace) -> int:
     return 0
 
 
+def _clamp_ik_target(x: float, z: float, yaw: float, vc: object) -> tuple[float, float, float]:
+    xmin = float(getattr(vc, "TARGET_X_MIN_MM", 100.0))
+    xmax = float(getattr(vc, "TARGET_X_MAX_MM", 230.0))
+    zmin = float(getattr(vc, "TARGET_Z_MIN_MM", 0.0))
+    zmax = float(getattr(vc, "TARGET_Z_MAX_MM", 170.0))
+    ylim = math.radians(float(getattr(vc, "BASE_YAW_MAX_DEG", 180.0)))
+    x = max(xmin, min(xmax, x))
+    z = max(zmin, min(zmax, z))
+    yaw = max(-ylim, min(ylim, yaw))
+    return x, z, yaw
+
+
+def cmd_ik_servo_test(args: argparse.Namespace) -> int:
+    """
+    Scripted IK → SET_SERVO sequence on hardware: ping, neutral, small x/z/yaw probes, neutral.
+
+    Use --dry-run on a PC to print the plan. Run on the Pi with the arm clear of people/obstacles.
+    """
+    import time
+
+    from . import vision_config as vc
+
+    prefer = args.prefer
+
+    delay = max(0.05, float(args.delay_s))
+    # Signed deltas from FK home tip: +x is farther in reach direction (often near workspace limit).
+    dx = float(args.dx_mm)
+    dz = float(args.dz_mm)
+    dyaw = math.radians(float(args.dyaw_deg))
+
+    fk0 = kinematics.forward_kinematics(0.0, 0.0)
+    x0, z0 = float(fk0.tip.x), float(fk0.tip.z)
+    x0, z0, _ = _clamp_ik_target(x0, z0, 0.0, vc)
+
+    waypoints: list[tuple[str, float, float, float]] = [
+        ("fk_home (model q=0 tip)", x0, z0, 0.0),
+        ("plane x +dx (reach)", x0 + dx, z0, 0.0),
+        ("fk_home", x0, z0, 0.0),
+        ("plane z +dz (height)", x0, z0 + dz, 0.0),
+        ("fk_home", x0, z0, 0.0),
+        ("base yaw +dyaw (pan)", x0, z0, dyaw),
+        ("fk_home", x0, z0, 0.0),
+    ]
+
+    print("IK servo test - stand clear; small motions from FK home tip.")
+    print(f"FK(0,0) tip x={fk0.tip.x:.2f} z={fk0.tip.z:.2f} mm | prefer={prefer} delay={delay:.2f}s")
+    print(f"steps dx={dx:+.1f} mm dz={dz:+.1f} mm dyaw={math.degrees(dyaw):+.2f} deg")
+
+    def _one(label: str, x: float, z: float, yaw: float) -> VerticalSolveResult:
+        xc, zc, yc = _clamp_ik_target(x, z, yaw, vc)
+        r = solve_vertical_plane(
+            x_mm=xc,
+            z_mm=zc,
+            base_yaw_rad=yc,
+            q_wrist_rad=0.0,
+            prefer=prefer,
+        )
+        clipped = ",".join(r.clip_notes) if r.clip_notes else "none"
+        print(
+            f"  {label:28s} x={xc:6.1f} z={zc:6.1f} yaw={yc:+.4f} "
+            f"ik_ok={r.ik.ok} servo_feasible={r.ok} clips={clipped} "
+            f"servo=({r.servo_clamped.wrist},{r.servo_clamped.elbow},{r.servo_clamped.base},{r.servo_clamped.shoulder})"
+        )
+        return r
+
+    if args.dry_run:
+        for label, x, z, yaw in waypoints:
+            _one(label, x, z, yaw)
+        print("dry-run: no serial motion.")
+        return 0
+
+    arm = ArmSerial(port=args.port)
+    controller = RobotController(serial=arm)
+    controller.connect()
+    try:
+        if not controller.ping():
+            print("PING failed — check USB port and firmware.", file=sys.stderr)
+            return 1
+        print("PING ok. Sending NEUTRAL…")
+        controller.neutral()
+        time.sleep(max(0.15, delay * 0.5))
+
+        for label, x, z, yaw in waypoints:
+            r = _one(label, x, z, yaw)
+            if not r.ik.ok:
+                print("ABORT: IK failed ( unreachable target ). Check dx/dz/dyaw or envelope.", file=sys.stderr)
+                controller.neutral()
+                return 2
+            controller.send_servo(r.servo_clamped)
+            time.sleep(delay)
+
+        print("Returning to NEUTRAL…")
+        controller.neutral()
+        time.sleep(max(0.15, delay * 0.5))
+    finally:
+        controller.close()
+
+    print("Done.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="GLaDOS arm control / kinematics CLI")
     sub = p.add_subparsers(dest="command", required=True)
@@ -413,6 +515,43 @@ def build_parser() -> argparse.ArgumentParser:
     ikv.add_argument("--start-yaw", type=float, default=0.0, help="radians")
     ikv.add_argument("--prefer", choices=("elbow_up", "elbow_down"), default="elbow_up")
     ikv.set_defaults(func=cmd_ik_vertical_test)
+
+    iks = sub.add_parser(
+        "ik-servo-test",
+        help="scripted IK poses over serial (ping → neutral → small x/z/yaw → neutral); use --dry-run first",
+    )
+    iks.add_argument("--port", default=config.SERIAL_DEFAULT_PORT, help="Arduino serial device")
+    iks.add_argument(
+        "--delay-s",
+        type=float,
+        default=0.55,
+        help="seconds between SET_SERVO commands (default: 0.55)",
+    )
+    iks.add_argument(
+        "--dx-mm",
+        type=float,
+        default=-6.0,
+        help="plane x delta from FK home (mm); negative pulls back (safer near max reach)",
+    )
+    iks.add_argument(
+        "--dz-mm",
+        type=float,
+        default=6.0,
+        help="plane z delta from FK home (mm); positive raises tip in plane",
+    )
+    iks.add_argument("--dyaw-deg", type=float, default=7.0, help="base pan delta (deg)")
+    iks.add_argument(
+        "--prefer",
+        choices=("elbow_up", "elbow_down"),
+        default="elbow_up",
+        help="IK branch (vision_config IK_PREFER used if valid when omitted in code paths)",
+    )
+    iks.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print IK/servo plan only; do not open serial",
+    )
+    iks.set_defaults(func=cmd_ik_servo_test)
 
     return p
 

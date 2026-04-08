@@ -62,7 +62,7 @@ constexpr int SERVO4_MAX_ANGLE = 180;
 constexpr int NEUTRAL_WRIST = 200;
 constexpr int NEUTRAL_ELBOW = 270;
 constexpr int NEUTRAL_BASE = 135;
-constexpr int NEUTRAL_SHOULDER = 0;
+constexpr int NEUTRAL_SHOULDER = 10;
 
 // Serial
 constexpr unsigned long BAUD_RATE = 115200;

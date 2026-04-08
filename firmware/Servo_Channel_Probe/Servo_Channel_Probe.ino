@@ -43,7 +43,7 @@ const uint8_t CH[NUM_CH] = {0, 1, 2, 3, 4};
 // 0=wrist, 1=elbow, 2=shoulder, 3=base, 4=spare
 constexpr int NEUTRAL_CH0 = 200;
 constexpr int NEUTRAL_CH1 = 270;
-constexpr int NEUTRAL_CH2 = 0;
+constexpr int NEUTRAL_CH2 = 10;
 constexpr int NEUTRAL_CH3 = 135;
 constexpr int NEUTRAL_CH4 = 135;
 

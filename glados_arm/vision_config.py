@@ -140,8 +140,8 @@ DIST_Z_MAX_STEP_MM = 1.0
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
 # Elbow was dominating; raise shoulder so the vertical chain lifts with both joints.
-TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 3.2
-TRACK_SHOULDER_ASSIST_MAX_DEG = 14
+TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 6.0
+TRACK_SHOULDER_ASSIST_MAX_DEG = 24
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
@@ -152,19 +152,19 @@ DIST_SHOULDER_MAX_STEP_PER_FRAME_DEG = 1
 # Additional shoulder assist from measured z error (mm -> deg).
 # When IK mostly bends the elbow, this nudges shoulder so the tip actually reaches target_z.
 ZERR_SHOULDER_ASSIST_ENABLE = True
-ZERR_SHOULDER_DEG_PER_MM = 0.07
-ZERR_SHOULDER_MAX_DEG = 10
+ZERR_SHOULDER_DEG_PER_MM = 0.11
+ZERR_SHOULDER_MAX_DEG = 16
 ZERR_SIGN_SHOULDER = 1.0
 # Lower-bound behavior: if Y asks down while chain is at lower bound, use wrist-only down trim.
 LOWER_BOUND_WRIST_ONLY_ENABLE = True
 LOWER_BOUND_WRIST_ONLY_MAX_DEG = 20.0
 LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM = 80.0
 # Elbow assist in IK mode for vertical compensation.
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 1.7
-TRACK_ELBOW_ASSIST_MAX_DEG = 10
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 0.8
+TRACK_ELBOW_ASSIST_MAX_DEG = 6
 ELBOW_SMOOTH_ALPHA = 0.10
 ELBOW_MAX_STEP_PER_FRAME_DEG = 1
-ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 2
+ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 1
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 2

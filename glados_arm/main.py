@@ -443,6 +443,7 @@ def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
 
     fk0 = kinematics.forward_kinematics(0.0, 0.0)
     x0 = float(args.x_mm) if args.x_mm is not None else float(fk0.tip.x)
+    x0 -= float(args.pull_back_mm)
     z0 = float(fk0.tip.z)
     x0, z0, yaw_fixed = _clamp_ik_target(x0, z0, yaw_fixed, vc)
 
@@ -479,9 +480,20 @@ def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
 
     print("IK vertical line - fixed base yaw (forward), fixed x, sweep +z then optional return.")
     print(
-        f"FK(0,0) tip x={fk0.tip.x:.2f} z={fk0.tip.z:.2f} mm | using x={x0:.1f} mm yaw={yaw_fixed:+.4f} rad | prefer={prefer}"
+        f"FK(0,0) tip x={fk0.tip.x:.2f} z={fk0.tip.z:.2f} mm | using x={x0:.1f} mm "
+        f"(pull_back={float(args.pull_back_mm):.1f} mm) yaw={yaw_fixed:+.4f} rad | prefer={prefer}"
     )
     print(f"scan: z_top={z_top:.2f} mm (env z_max={z_max_env:.1f}) | path steps={len(zs_path)} step={step_mm:.1f}mm delay={delay:.2f}s")
+
+    def _fmt_line(r: VerticalSolveResult, zq: float, idx: str) -> str:
+        clipped = ",".join(r.clip_notes) if r.clip_notes else "none"
+        extra = ""
+        if r.clip_notes:
+            extra = f" raw_sh={r.servo_raw.shoulder}"
+        return (
+            f"  {idx} z={zq:6.2f} ik_ok={r.ik.ok} servo_feasible={r.ok} clips={clipped}{extra} "
+            f"servo=({r.servo_clamped.wrist},{r.servo_clamped.elbow},{r.servo_clamped.base},{r.servo_clamped.shoulder})"
+        )
 
     def _solve_at_z(zq: float) -> VerticalSolveResult:
         xc, zc, yc = _clamp_ik_target(x0, zq, yaw_fixed, vc)
@@ -493,14 +505,19 @@ def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
             prefer=prefer,
         )
 
+    if z_top > z0 + 1e-6:
+        rp = _solve_at_z(z0 + 0.5 * (z_top - z0))
+        if "clipped_shoulder_min" in rp.clip_notes and rp.servo_raw.shoulder < float(config.NEUTRAL_SHOULDER):
+            print(
+                "NOTE: IK asks for shoulder below SERVO_SHOULDER_MIN (0 deg); "
+                "hardware clamps shoulder to 0 - you mostly see elbow motion. "
+                "Try --pull-back-mm 15-30 (smaller x, tip closer to base) so shoulder can participate."
+            )
+
     if args.dry_run:
         for i, zq in enumerate(zs_path):
             r = _solve_at_z(zq)
-            clipped = ",".join(r.clip_notes) if r.clip_notes else "none"
-            print(
-                f"  {i+1:03d} z={zq:6.2f} ik_ok={r.ik.ok} servo_feasible={r.ok} clips={clipped} "
-                f"servo=({r.servo_clamped.wrist},{r.servo_clamped.elbow},{r.servo_clamped.base},{r.servo_clamped.shoulder})"
-            )
+            print(_fmt_line(r, zq, f"{i+1:03d}"))
         print("dry-run: no serial motion.")
         return 0
 
@@ -517,11 +534,7 @@ def cmd_ik_servo_vertical_line(args: argparse.Namespace) -> int:
 
         for i, zq in enumerate(zs_path):
             r = _solve_at_z(zq)
-            clipped = ",".join(r.clip_notes) if r.clip_notes else "none"
-            print(
-                f"  {i+1:03d}/{len(zs_path)} z={zq:6.2f} ik_ok={r.ik.ok} servo_feasible={r.ok} clips={clipped} "
-                f"servo=({r.servo_clamped.wrist},{r.servo_clamped.elbow},{r.servo_clamped.base},{r.servo_clamped.shoulder})"
-            )
+            print(_fmt_line(r, zq, f"{i+1:03d}/{len(zs_path)}"))
             if not r.ik.ok:
                 print("ABORT: IK failed mid-path.", file=sys.stderr)
                 controller.neutral()
@@ -692,6 +705,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="fixed plane x in mm (default: FK(0,0) tip x)",
+    )
+    ikv2.add_argument(
+        "--pull-back-mm",
+        type=float,
+        default=0.0,
+        help="subtract from x before clamp (tip closer to base; often frees shoulder from min clip)",
     )
     ikv2.add_argument(
         "--return-down",

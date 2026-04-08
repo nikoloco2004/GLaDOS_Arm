@@ -60,19 +60,19 @@ TRACK_BASE_RAD_PER_NORM = 0.09
 # Base X controller mode: "p" (legacy proportional) or "pid".
 BASE_X_CTRL_MODE = "pid"
 # PID tuning for base X (output is radians per frame, then clamped by MAX_BASE_YAW_STEP_RAD).
-BASE_PID_KP = 0.085
+BASE_PID_KP = 0.080
 BASE_PID_KI = 0.0
-BASE_PID_KD = 0.040
+BASE_PID_KD = 0.045
 # Integral clamp (in normalized-error frame-sum units) and derivative smoothing.
 BASE_PID_I_CLAMP = 2.0
 BASE_PID_D_ALPHA = 0.55
 BASE_PID_RESET_ON_LOSS = True
 # Extra damping when error crosses zero (helps remove lingering overshoot).
-BASE_PID_ZERO_CROSS_BRAKE = 0.30
+BASE_PID_ZERO_CROSS_BRAKE = 0.35
 # Two-zone damping near center: keep far response, suppress near-center overshoot.
 BASE_PID_NEAR_ERROR = 0.14
-BASE_PID_NEAR_STEP_SCALE = 0.35
-BASE_PID_ZERO_CROSS_HOLD_FRAMES = 3
+BASE_PID_NEAR_STEP_SCALE = 0.50
+BASE_PID_ZERO_CROSS_HOLD_FRAMES = 1
 # Image Y correction (normalized) -> vertical target z delta (mm/frame) when Y_Z_CTRL_MODE == "p".
 # Direct P on error each frame (no integral windup) — use this instead of PID when vertical feels "zoomy".
 TRACK_Z_MM_PER_NORM = 3.4

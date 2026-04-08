@@ -170,10 +170,6 @@ class MotionControllerV1:
     ) -> ServoCommand:
         vc = self._vc
         shoulder_dist_assist_deg = 0
-        up_only = bool(getattr(vc, "TRACK_VERTICAL_UP_ONLY", False))
-        corr_y_norm_eff = max(0.0, corr_y_norm) if up_only else corr_y_norm
-        corr_y_vert_eff = max(0.0, corr_y_vert) if up_only else corr_y_vert
-        corr_y_ik_eff = max(0.0, corr_y_ik) if up_only else corr_y_ik
         max_base_step = float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08))
         # First-lock overshoot guard: limit yaw step on initial acquisition and ramp to full cap.
         lock_frames = max(0, int(getattr(vc, "BASE_FIRST_LOCK_STEP_FRAMES", 10)))
@@ -226,7 +222,7 @@ class MotionControllerV1:
         self.base_yaw_rad += base_step
         self.base_yaw_rad = clamp(self.base_yaw_rad, -self.base_yaw_lim, self.base_yaw_lim)
 
-        y_for_z = corr_y_ik_eff + float(getattr(vc, "SIGN_ERROR_X_TO_Z", 1.0)) * float(
+        y_for_z = corr_y_ik + float(getattr(vc, "SIGN_ERROR_X_TO_Z", 1.0)) * float(
             getattr(vc, "TRACK_Z_FROM_X_MIX", 0.0)
         ) * corr_x_ctrl
         y_for_z = clamp(y_for_z, -1.0, 1.0)
@@ -340,11 +336,11 @@ class MotionControllerV1:
         ik_prefer = kinematics.resolve_ik_preference(
             prefer,
             self.last_ik_solution,
-            corr_y_norm_eff,
+            corr_y_norm,
             switch_threshold=float(self._mv("IK_BRANCH_SWITCH_ERR_NORM", 0.12)),
         )
 
-        wrist_trim_deg, shoulder_assist_deg, elbow_assist_deg = self._legacy_assists(corr_y_vert_eff)
+        wrist_trim_deg, shoulder_assist_deg, elbow_assist_deg = self._legacy_assists(corr_y_vert)
 
         cmd = self._solve_ik_chain(
             vc=vc,

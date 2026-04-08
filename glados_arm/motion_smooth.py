@@ -112,6 +112,60 @@ def sync_step_servo_toward(
     )
 
 
+def servo_command_to_float_tuple(cmd: ServoCommand) -> tuple[float, float, float, float]:
+    return (float(cmd.wrist), float(cmd.elbow), float(cmd.base), float(cmd.shoulder))
+
+
+def float_tuple_to_servo_command(t: tuple[float, float, float, float]) -> ServoCommand:
+    return ServoCommand(
+        wrist=int(round(t[0])),
+        elbow=int(round(t[1])),
+        base=int(round(t[2])),
+        shoulder=int(round(t[3])),
+    )
+
+
+def sync_step_servo_float_toward(
+    prev: tuple[float, float, float, float],
+    target: ServoCommand,
+    dt: float,
+    max_dps: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """
+    Same proportional sync as sync_step_servo_toward but keeps float degrees so sub-degree
+    motion accumulates across many small steps (integer rounding each step would freeze motion
+    when per-step delta is below 0.5 deg).
+    """
+    if dt <= 1e-9:
+        return (
+            float(target.wrist),
+            float(target.elbow),
+            float(target.base),
+            float(target.shoulder),
+        )
+    pairs = (
+        (prev[0], float(target.wrist), max_dps[0]),
+        (prev[1], float(target.elbow), max_dps[1]),
+        (prev[2], float(target.base), max_dps[2]),
+        (prev[3], float(target.shoulder), max_dps[3]),
+    )
+    max_frac = 1.0
+    for p, t, dps in pairs:
+        d = t - p
+        ad = abs(d)
+        if ad < 1e-9:
+            continue
+        max_frac = min(max_frac, (dps * dt) / ad)
+    if max_frac < 1e-12:
+        return prev
+    return (
+        prev[0] + (float(target.wrist) - prev[0]) * max_frac,
+        prev[1] + (float(target.elbow) - prev[1]) * max_frac,
+        prev[2] + (float(target.base) - prev[2]) * max_frac,
+        prev[3] + (float(target.shoulder) - prev[3]) * max_frac,
+    )
+
+
 def accel_limit_delta(
     state: JointRateState,
     new_cmd: ServoCommand,

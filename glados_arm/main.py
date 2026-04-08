@@ -20,7 +20,14 @@ from .controller import (
     solve_vertical_plane,
 )
 from .mapping import ModelJointState, ServoCommand, clamp_servo, model_to_servo, servo_to_model
-from .motion_smooth import lowpass_scalar, rate_limit_servo_deg_per_sec, sync_step_servo_toward
+from .motion_smooth import (
+    float_tuple_to_servo_command,
+    lowpass_scalar,
+    rate_limit_servo_deg_per_sec,
+    servo_command_to_float_tuple,
+    sync_step_servo_float_toward,
+    sync_step_servo_toward,
+)
 from .serial_comm import ArmSerial
 
 
@@ -958,16 +965,19 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
         if len(z_schedule) != n_frames + 1:
             raise ValueError("z_schedule length must be n_frames+1")
         dt_sub = dt / float(substeps)
-        cmd = prev_cmd
+        # Float degrees so sub-integer motion accumulates (integer sync each substep = no motion).
+        cmd_f = servo_command_to_float_tuple(prev_cmd)
         for i in range(n_frames + 1):
             zq = z_schedule[i]
-            r = _solve_at_z(zq, cmd)
+            cmd_int = float_tuple_to_servo_command(cmd_f)
+            r = _solve_at_z(zq, cmd_int)
             if not r.ik.ok:
                 print(f"ABORT: IK failed at z={zq:.2f} ({label})", file=sys.stderr)
                 raise RuntimeError("ik_fail")
             tgt = r.servo_clamped
             for _ in range(substeps):
-                cmd = sync_step_servo_toward(cmd, tgt, dt_sub, max_dps_raise)
+                cmd_f = sync_step_servo_float_toward(cmd_f, tgt, dt_sub, max_dps_raise)
+                cmd = float_tuple_to_servo_command(cmd_f)
                 if controller is not None:
                     controller.send_servo(cmd)
                     time.sleep(dt_sub)
@@ -977,7 +987,7 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
                 or (n_frames > 8 and i % max(1, n_frames // 8) == 0)
             ):
                 print(_fmt_line(r, zq, f"{label} {i}/{n_frames}"))
-        return cmd
+        return float_tuple_to_servo_command(cmd_f)
 
     neutral_cmd = ServoCommand(
         wrist=config.NEUTRAL_WRIST,
@@ -1037,15 +1047,18 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
 
         if discrete:
             zs_path = _vertical_path_zs(z0, z_top, step_mm, bool(args.return_down))
-            cmd = neutral_cmd
+            cmd_f = servo_command_to_float_tuple(neutral_cmd)
             for i, zq in enumerate(zs_path):
-                r = _solve_at_z(zq, cmd)
+                cmd_int = float_tuple_to_servo_command(cmd_f)
+                r = _solve_at_z(zq, cmd_int)
                 print(_fmt_line(r, zq, f"{i+1:03d}/{len(zs_path)}"))
                 if not r.ik.ok:
                     print("ABORT: IK failed mid-path.", file=sys.stderr)
                     controller.neutral()
                     return 2
-                cmd = sync_step_servo_toward(cmd, r.servo_clamped, max(dt, delay * 0.5), max_dps_raise)
+                step_dt = max(dt, delay * 0.5)
+                cmd_f = sync_step_servo_float_toward(cmd_f, r.servo_clamped, step_dt, max_dps_raise)
+                cmd = float_tuple_to_servo_command(cmd_f)
                 controller.send_servo(cmd)
                 time.sleep(delay)
         else:

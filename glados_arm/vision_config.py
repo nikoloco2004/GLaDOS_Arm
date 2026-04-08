@@ -42,6 +42,11 @@ COLOR_MODE = "bgr"
 # - "proportional": direct neutral+delta servo commands (legacy mode)
 CONTROL_MODE = "ik"
 
+# Temporary: freeze horizontal (base / image X) and wrist while debugging shoulder+elbow.
+# When True, corr_x is forced to 0 (no base step, no x_mm target nudge) and wrist stays at NEUTRAL_WRIST.
+TEMP_DISABLE_X_AXIS_TRACKING = True
+TEMP_DISABLE_WRIST_TRACKING = True
+
 # IK live-target tuning (used when CONTROL_MODE == "ik")
 # Image X correction (normalized) -> base yaw delta (rad/frame)
 TRACK_BASE_RAD_PER_NORM = 0.09
@@ -154,6 +159,7 @@ TRACK_ELBOW_ASSIST_DEG_PER_NORM = 2.0
 TRACK_ELBOW_ASSIST_MAX_DEG = 10
 ELBOW_SMOOTH_ALPHA = 0.06
 ELBOW_MAX_STEP_PER_FRAME_DEG = 1
+# Applied after IK solve (non-tandem only). Tandem vertical PID bypasses this so elbow keeps up with shoulder.
 ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 2
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.

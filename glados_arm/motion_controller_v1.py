@@ -364,14 +364,21 @@ class MotionControllerV1:
             z_step=z_step,
         )
 
-        # Keep this one behavior: at lower bound, if Y asks down, use wrist-only trim.
+        # Lower-bound takeover: when vertical chain is pinned at lower limit, let wrist
+        # handle further downward correction instead of fighting clipped shoulder/elbow.
         if bool(getattr(vc, "LOWER_BOUND_WRIST_ONLY_ENABLE", False)):
             z_min = float(getattr(vc, "TARGET_Z_MIN_MM", 0.0))
             at_lower = self.target_z_mm <= z_min + 1e-3
             lower_clip = (
                 "clipped_elbow_max" in self.ik_clip_notes and "clipped_shoulder_min" in self.ik_clip_notes
             )
-            if corr_y_ik < 0.0 and (at_lower or lower_clip):
+            pin_margin = max(0, int(getattr(vc, "LOWER_BOUND_PIN_MARGIN_DEG", 2)))
+            elbow_pinned = int(self.last_valid_cmd.elbow) >= int(config.SERVO_ELBOW_MAX) - pin_margin
+            shoulder_pinned = int(self.last_valid_cmd.shoulder) <= int(config.SERVO_SHOULDER_MIN) + pin_margin
+            lower_pinned = elbow_pinned and shoulder_pinned
+            down_eps = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_DOWN_EPS_NORM", 0.02)))
+            wants_down = corr_y_ik < -down_eps
+            if wants_down and (at_lower or lower_clip or lower_pinned):
                 max_deg = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_MAX_DEG", 20.0)))
                 gain = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM", 80.0)))
                 down_deg = clamp(abs(corr_y_ik) * gain, 0.0, max_deg)

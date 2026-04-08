@@ -435,12 +435,16 @@ class MotionControllerV1:
             vertical_ok = len(filtered_notes) == 0
             q_wrist_use = 0.0
             if trim_mode != "legacy" and solved.ik.ok:
+                fk0 = kinematics.forward_kinematics(0.0, 0.0)
                 fk = kinematics.forward_kinematics(solved.model.q_shoulder_rad, solved.model.q_elbow_rad)
+                s0 = fk0.theta1_abs + fk0.theta2_abs
+                s1 = fk.theta1_abs + fk.theta2_abs
                 desired = float(self._mv("DESIRED_CAMERA_PITCH_RAD", 0.0))
                 mount = float(self._mv("CAMERA_MOUNT_OFFSET_RAD", 0.0))
                 kg = float(self._mv("BASE_YAW_COUPLING_GAIN", 0.0))
+                gp = float(self._mv("WRIST_STAB_LINK_PITCH_GAIN", 1.0))
                 q_wrist_use = (
-                    desired - (fk.theta1_abs + fk.theta2_abs) - mount - kg * float(self.base_yaw_rad)
+                    desired + gp * (s1 - s0) - mount - kg * float(self.base_yaw_rad)
                 )
 
             solved2 = solve_vertical_plane(

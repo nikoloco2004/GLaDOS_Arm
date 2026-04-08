@@ -349,7 +349,8 @@ def _wrist_stab_pitch_rad(
     desired = float(getattr(mv1, "DESIRED_CAMERA_PITCH_RAD", 0.0))
     mount = float(getattr(mv1, "CAMERA_MOUNT_OFFSET_RAD", 0.0))
     kg = float(getattr(mv1, "BASE_YAW_COUPLING_GAIN", 0.0))
-    return desired - (fk.theta1_abs + fk.theta2_abs) - mount - kg * base_yaw_rad
+    gp = float(getattr(mv1, "WRIST_STAB_LINK_PITCH_GAIN", 1.0))
+    return desired + gp * (fk.theta1_abs + fk.theta2_abs) - mount - kg * base_yaw_rad
 
 
 def _wrist_stab_pitch_rad_delta_neutral(
@@ -370,7 +371,8 @@ def _wrist_stab_pitch_rad_delta_neutral(
     desired = float(getattr(mv1, "DESIRED_CAMERA_PITCH_RAD", 0.0))
     mount = float(getattr(mv1, "CAMERA_MOUNT_OFFSET_RAD", 0.0))
     kg = float(getattr(mv1, "BASE_YAW_COUPLING_GAIN", 0.0))
-    return desired - (s1 - s0) - mount - kg * base_yaw_rad
+    gp = float(getattr(mv1, "WRIST_STAB_LINK_PITCH_GAIN", 1.0))
+    return desired + gp * (s1 - s0) - mount - kg * base_yaw_rad
 
 
 def _solve_vertical_with_optional_wrist_stab(

@@ -2,7 +2,7 @@
  * Servo Channel Probe (PCA9685 + Arduino Uno R4 WiFi)
  *
  * Purpose:
- *   - Help identify which physical servo is on PCA9685 channels 0..3.
+ *   - Help identify which physical servo is on PCA9685 channels 0..4.
  *   - Help discover usable angle limits after rewiring.
  *
  * Behavior:
@@ -11,9 +11,9 @@
  *
  * Serial commands (115200):
  *   HELP
- *   CH <0-3> <0-270>                 move one channel to angle
+ *   CH <0-4> <0-270>                 move one channel to angle
  *   ALL <0-270>                      move all channels to angle
- *   SWEEP <0-3> <min> <max> <step>   sweep one channel
+ *   SWEEP <0-4> <min> <max> <step>   sweep one channel
  *   IDENT                            rerun identification sequence
  *   STOP                             stop motion (holds current output)
  */
@@ -34,8 +34,8 @@ constexpr int ANGLE_MAX = 270;
 constexpr uint16_t PWM_TICK_MIN = 102;
 constexpr uint16_t PWM_TICK_MAX = 512;
 
-constexpr uint8_t NUM_CH = 4;
-const uint8_t CH[NUM_CH] = {0, 1, 2, 3};
+constexpr uint8_t NUM_CH = 5;
+const uint8_t CH[NUM_CH] = {0, 1, 2, 3, 4};
 
 Adafruit_PWMServoDriver pwm(PCA_ADDR);
 
@@ -76,9 +76,9 @@ static void waitWithStopCheck(unsigned long ms) {
 static void printHelp() {
   Serial.println(F("Servo Channel Probe commands:"));
   Serial.println(F("  HELP"));
-  Serial.println(F("  CH <0-3> <0-270>"));
+  Serial.println(F("  CH <0-4> <0-270>"));
   Serial.println(F("  ALL <0-270>"));
-  Serial.println(F("  SWEEP <0-3> <min> <max> <step>"));
+  Serial.println(F("  SWEEP <0-4> <min> <max> <step>"));
   Serial.println(F("  IDENT"));
   Serial.println(F("  PING"));
   Serial.println(F("  STOP"));
@@ -161,13 +161,13 @@ void loop() {
         char* a = strtok(nullptr, " \t");
         char* b = strtok(nullptr, " \t");
         if (!a || !b) {
-          Serial.println(F("ERR CH <0-3> <0-270>"));
+          Serial.println(F("ERR CH <0-4> <0-270>"));
           continue;
         }
         int ch = atoi(a);
         int deg = atoi(b);
-        if (ch < 0 || ch > 3) {
-          Serial.println(F("ERR channel must be 0..3"));
+        if (ch < 0 || ch > 4) {
+          Serial.println(F("ERR channel must be 0..4"));
           continue;
         }
         setChAngle((uint8_t)ch, deg);
@@ -191,14 +191,14 @@ void loop() {
         char* cmax = strtok(nullptr, " \t");
         char* cstep = strtok(nullptr, " \t");
         if (!cch || !cmin || !cmax || !cstep) {
-          Serial.println(F("ERR SWEEP <0-3> <min> <max> <step>"));
+          Serial.println(F("ERR SWEEP <0-4> <min> <max> <step>"));
           continue;
         }
         int ch = atoi(cch);
         int amin = clampAngle(atoi(cmin));
         int amax = clampAngle(atoi(cmax));
         int astep = abs(atoi(cstep));
-        if (ch < 0 || ch > 3 || astep == 0) {
+        if (ch < 0 || ch > 4 || astep == 0) {
           Serial.println(F("ERR invalid sweep args"));
           continue;
         }

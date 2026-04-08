@@ -806,11 +806,10 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     """
     From firmware NEUTRAL: straight vertical line in the (x,z) plane (fixed x, base yaw 0).
 
-    Default **smooth** mode: fixed **x**, **z** from a time schedule (arc-length optional) — that
-    is a **straight vertical line** in the kinematic plane. Each frame solves IK for **(x,z)** and
-    slews **all** servos **together** toward that pose with one coupled fraction
-    (``sync_step_servo_float_toward``), so the arm tracks the IK solution curve, not independent
-    joint ramps (which would pull the tip off the line).
+    Default **smooth** mode: fixed **x**, **z(t)** (arc-length optional) = straight vertical line.
+    **Default** is **direct IK**: send full ``servo_clamped`` every frame so all joints follow the
+    same Cartesian solution (no inter-frame slew, which caused one joint at a time with integer
+    servos). Use ``--raise-slew`` for rate-limited blending toward each IK target if needed.
 
     Wrist uses **delta_neutral** stab: level reference is neutral (q=0); q_wrist tracks the
     change in link pitch from that pose. Stab reads shoulder/elbow from the **previous
@@ -839,6 +838,7 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     duration_down = float(args.duration_up) if args.duration_down is None else float(args.duration_down)
     dt = 1.0 / hz
     substeps = max(1, int(args.raise_substeps))
+    raise_slew = bool(args.raise_slew)
 
     fk0 = kinematics.forward_kinematics(0.0, 0.0)
     x0 = float(args.x_mm) if args.x_mm is not None else float(fk0.tip.x)
@@ -966,13 +966,36 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
         controller: RobotController | None,
     ) -> ServoCommand:
         """
-        Fixed (x,z) targets from the schedule → one IK solution per frame (straight vertical line
-        in the plane). We step all joints together toward that solution with one proportional
-        fraction (sync_step_servo_float_toward), not independent joint slews — independent motion
-        breaks the coupled IK path and the tip leaves the line.
+        Fixed (x,z) from the schedule → straight vertical line in the plane.
+
+        **Default (direct IK):** send the full IK `servo_clamped` every frame. All joints update
+        from the same pose; small Δz per frame keeps motion smooth. Slew toward target + integer
+        rounding made only one servo's degree tick at a time.
+
+        **Optional --raise-slew:** proportional float sync toward IK (rate-limited), for hardware
+        that cannot follow fast command streams.
         """
         if len(z_schedule) != n_frames + 1:
             raise ValueError("z_schedule length must be n_frames+1")
+        cmd = prev_cmd
+        if not raise_slew:
+            for i in range(n_frames + 1):
+                zq = z_schedule[i]
+                r = _solve_at_z(zq, cmd)
+                if not r.ik.ok:
+                    print(f"ABORT: IK failed at z={zq:.2f} ({label})", file=sys.stderr)
+                    raise RuntimeError("ik_fail")
+                cmd = r.servo_clamped
+                if controller is not None:
+                    controller.send_servo(cmd)
+                    time.sleep(dt)
+                if print_samples and (
+                    i == 0
+                    or i == n_frames
+                    or (n_frames > 8 and i % max(1, n_frames // 8) == 0)
+                ):
+                    print(_fmt_line(r, zq, f"{label} {i}/{n_frames}"))
+            return cmd
         dt_sub = dt / float(max(1, substeps))
         cmd_f = servo_command_to_float_tuple(prev_cmd)
         for i in range(n_frames + 1):
@@ -1010,8 +1033,8 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
         print(
             f"smooth: hz={hz:.1f} dt={dt*1000:.1f}ms | up {duration_up:.1f}s ({n_up} frames) "
             f"{'+ down ' + str(round(duration_down, 1)) + 's' if bool(args.return_down) else ''} "
-            f"| arc_z={use_arc} k_fine={k_fine} substeps={substeps} "
-            f"| raise_speed={raise_speed} coupled-IK-step MAX_JOINT_DPS={max_dps_raise}"
+            f"| arc_z={use_arc} k_fine={k_fine} direct_ik={not raise_slew} "
+            f"{'| slew substeps=' + str(substeps) + ' MAX_JOINT_DPS=' + str(max_dps_raise) if raise_slew else ''}"
         )
         z_sched_up = (
             _raise_camera_arc_z_schedule(z0, z_top, neutral_cmd, _solve_at_z, n_up, k_fine)
@@ -1056,18 +1079,21 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
 
         if discrete:
             zs_path = _vertical_path_zs(z0, z_top, step_mm, bool(args.return_down))
-            cmd_f = servo_command_to_float_tuple(neutral_cmd)
+            cmd = neutral_cmd
+            cmd_f = servo_command_to_float_tuple(neutral_cmd) if raise_slew else None
             for i, zq in enumerate(zs_path):
-                cmd_int = float_tuple_to_servo_command(cmd_f)
-                r = _solve_at_z(zq, cmd_int)
+                r = _solve_at_z(zq, cmd)
                 print(_fmt_line(r, zq, f"{i+1:03d}/{len(zs_path)}"))
                 if not r.ik.ok:
                     print("ABORT: IK failed mid-path.", file=sys.stderr)
                     controller.neutral()
                     return 2
-                step_dt = max(dt, delay * 0.5)
-                cmd_f = sync_step_servo_float_toward(cmd_f, r.servo_clamped, step_dt, max_dps_raise)
-                cmd = float_tuple_to_servo_command(cmd_f)
+                if raise_slew:
+                    step_dt = max(dt, delay * 0.5)
+                    cmd_f = sync_step_servo_float_toward(cmd_f, r.servo_clamped, step_dt, max_dps_raise)
+                    cmd = float_tuple_to_servo_command(cmd_f)
+                else:
+                    cmd = r.servo_clamped
                 controller.send_servo(cmd)
                 time.sleep(delay)
         else:
@@ -1270,8 +1296,8 @@ def build_parser() -> argparse.ArgumentParser:
     rc = sub.add_parser(
         "raise-camera",
         help=(
-            "vertical line from NEUTRAL: smooth IK with per-joint rate limits; "
-            "wrist=delta-from-neutral stab; arc-length z optional. Use --discrete for stepped motion."
+            "vertical line from NEUTRAL: default direct IK each frame (straight tip path); "
+            "wrist=delta-from-neutral stab; optional --raise-slew. Use --discrete for stepped motion."
         ),
     )
     rc.add_argument("--port", default=config.SERIAL_DEFAULT_PORT)
@@ -1330,6 +1356,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-arc-length",
         action="store_true",
         help="use linear z vs time (default: arc-length scheduling for even joint-space motion)",
+    )
+    rc.add_argument(
+        "--raise-slew",
+        action="store_true",
+        help="rate-limit toward IK with float sync (default: send full IK pose every frame)",
     )
     rc.add_argument(
         "--raise-substeps",

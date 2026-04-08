@@ -376,12 +376,14 @@ class MotionControllerV1:
             elbow_pinned = int(self.last_valid_cmd.elbow) >= int(config.SERVO_ELBOW_MAX) - pin_margin
             shoulder_pinned = int(self.last_valid_cmd.shoulder) <= int(config.SERVO_SHOULDER_MIN) + pin_margin
             lower_pinned = elbow_pinned and shoulder_pinned
-            down_eps = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_DOWN_EPS_NORM", 0.02)))
-            wants_down = corr_y_ik < -down_eps
+            # Use solved z direction (after sign/config) so takeover works regardless of
+            # corr_y sign conventions.
+            down_eps_mm = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_DOWN_ZSTEP_EPS_MM", 0.02)))
+            wants_down = float(z_step) < -down_eps_mm
             if wants_down and (at_lower or lower_clip or lower_pinned):
                 max_deg = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_MAX_DEG", 20.0)))
                 gain = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM", 80.0)))
-                down_deg = clamp(abs(corr_y_ik) * gain, 0.0, max_deg)
+                down_deg = clamp(abs(self.y_for_z) * gain, 0.0, max_deg)
                 wrist_cmd = int(round(float(config.NEUTRAL_WRIST) - down_deg))
                 cmd = ServoCommand(
                     wrist=wrist_cmd,

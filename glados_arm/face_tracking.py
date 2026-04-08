@@ -81,6 +81,16 @@ def _clamp(v: float, lo: float, hi: float) -> float:
     return lo if v < lo else hi if v > hi else v
 
 
+def _preprocess_gray_for_detect(gray: np.ndarray, vc: object) -> np.ndarray:
+    """Grayscale for Haar: global hist_eq or CLAHE (often better in flat / mid lighting)."""
+    if bool(getattr(vc, "VISION_CLAHE_ENABLE", False)):
+        clip = float(getattr(vc, "VISION_CLAHE_CLIP", 2.0))
+        tile = max(2, int(getattr(vc, "VISION_CLAHE_TILE", 8)))
+        clahe = cv2.createCLAHE(clipLimit=clip, tileGridSize=(tile, tile))
+        return clahe.apply(gray)
+    return cv2.equalizeHist(gray)
+
+
 def _step_toward(cur: float, target: float, max_step: float) -> float:
     d = target - cur
     if abs(d) <= max_step:
@@ -360,6 +370,8 @@ def run_tracking(
     prev_had_face = False
     first_find_phase = "idle"
     first_find_ramp = 0.0
+    sm_bbox: tuple[float, float, float, float] | None = None
+    hold_left = 0
 
     try:
         while True:
@@ -410,7 +422,7 @@ def run_tracking(
                 inv_scale = 1.0
                 min_face = vc.HAAR_MIN_SIZE
 
-            gray_small = cv2.equalizeHist(gray_small)
+            gray_small = _preprocess_gray_for_detect(gray_small, vc)
             run_detect = (frame_idx % detect_every) == 0 or not last_faces
             if run_detect:
                 detected = face_cascade.detectMultiScale(
@@ -421,6 +433,43 @@ def run_tracking(
                 )
                 last_faces = [tuple(map(int, d)) for d in detected]
             faces = last_faces
+
+            raw_best: tuple[int, int, int, int] | None = None
+            if len(faces) > 0:
+                areas = [fw * fh for (_x, _y, fw, fh) in faces]
+                i = int(np.argmax(areas))
+                x0, y0, fw0, fh0 = faces[i]
+                raw_best = (
+                    int(round(x0 * inv_scale)),
+                    int(round(y0 * inv_scale)),
+                    int(round(fw0 * inv_scale)),
+                    int(round(fh0 * inv_scale)),
+                )
+
+            bbox_sm_alpha = float(getattr(vc, "FACE_BBOX_SMOOTH_ALPHA", 0.25))
+            hold_max = max(0, int(getattr(vc, "FACE_HOLD_MAX_FRAMES", 15)))
+            track_rect: tuple[float, float, float, float] | None = None
+            if raw_best is not None:
+                rf = tuple(float(v) for v in raw_best)
+                if sm_bbox is None:
+                    sm_bbox = rf
+                else:
+                    sm_bbox = tuple(
+                        (1.0 - bbox_sm_alpha) * s + bbox_sm_alpha * r
+                        for s, r in zip(sm_bbox, rf)
+                    )
+                hold_left = hold_max
+                track_rect = sm_bbox
+            elif hold_left > 0 and sm_bbox is not None:
+                hold_left -= 1
+                track_rect = sm_bbox
+            else:
+                track_rect = None
+                sm_bbox = None
+                hold_left = 0
+
+            coasting = raw_best is None and track_rect is not None
+
             cx_img = w * 0.5
             cy_img = h * 0.5
             corr_x_norm = 0.0
@@ -432,7 +481,7 @@ def run_tracking(
             dist_step_z_mm = 0.0
             z_err_mm = 0.0
 
-            if len(faces) > 0:
+            if track_rect is not None:
                 if not prev_had_face:
                     if bool(getattr(vc, "FIRST_FIND_EXTEND_ENABLE", False)):
                         first_find_phase = "to_quarter"
@@ -442,13 +491,10 @@ def run_tracking(
                 no_face_neutral_sent = False
                 motion.no_face_neutral_sent = False
                 face_lock_frames += 1
-                areas = [fw * fh for (_x, _y, fw, fh) in faces]
-                i = int(np.argmax(areas))
-                x, y, fw, fh = faces[i]
-                x = int(round(x * inv_scale))
-                y = int(round(y * inv_scale))
-                fw = int(round(fw * inv_scale))
-                fh = int(round(fh * inv_scale))
+                x = int(round(track_rect[0]))
+                y = int(round(track_rect[1]))
+                fw = int(round(track_rect[2]))
+                fh = int(round(track_rect[3]))
                 cx = x + fw * 0.5
                 cy = y + fh * 0.5
 
@@ -598,6 +644,17 @@ def run_tracking(
                     cv2.line(vis, (int(cx_img), 0), (int(cx_img), h), (180, 180, 180), 1)
                     cv2.line(vis, (0, int(cy_img)), (w, int(cy_img)), (180, 180, 180), 1)
                     cv2.rectangle(vis, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
+                    if coasting:
+                        cv2.putText(
+                            vis,
+                            "hold",
+                            (min(x + fw + 4, w - 52), max(y + 18, 20)),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (0, 255, 255),
+                            1,
+                            cv2.LINE_AA,
+                        )
                     cv2.circle(vis, (int(cx), int(cy)), 5, (0, 0, 255), -1)
                     cv2.putText(
                         vis,
@@ -758,7 +815,7 @@ def run_tracking(
                     cv2.imshow("GLaDOS face track", vis)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
-            prev_had_face = len(faces) > 0
+            prev_had_face = track_rect is not None
             frame_idx += 1
 
     except KeyboardInterrupt:

@@ -33,6 +33,16 @@ DETECT_MAX_WIDTH = 256
 # Run Haar every N frames and reuse last bbox between detections (=1 is more stable when the target moves).
 DETECT_EVERY_N_FRAMES = 1
 
+# Detection grayscale: global equalizeHist (legacy) vs CLAHE (often better in flat / mid lighting).
+VISION_CLAHE_ENABLE = True
+VISION_CLAHE_CLIP = 2.0
+VISION_CLAHE_TILE = 8
+
+# Full-res bbox low-pass (reduces overlay jitter; Haar still runs every frame when DETECT_EVERY_N_FRAMES==1).
+FACE_BBOX_SMOOTH_ALPHA = 0.22
+# When Haar returns no faces, keep last smoothed bbox this many frames (~12–18 @ 30fps ≈ 0.4–0.6s).
+FACE_HOLD_MAX_FRAMES = 15
+
 # Picamera2 color mode for raw frames: "bgr" or "rgb".
 # On your stack face looked blue with RGB->BGR conversion, so default to BGR.
 COLOR_MODE = "bgr"

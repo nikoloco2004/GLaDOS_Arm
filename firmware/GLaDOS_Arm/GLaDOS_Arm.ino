@@ -113,6 +113,7 @@ unsigned long lastServoMs = 0;
 unsigned long lastLoopMs = 0;
 unsigned long lastPcaRetryMs = 0;
 bool pcaReady = false;
+bool outputsFree = false;
 unsigned long bootMs = 0;
 unsigned long pcaOnlineSinceMs = 0;
 unsigned long lastPcaKeepaliveMs = 0;
@@ -144,8 +145,15 @@ static void setChannelPwmTicks(uint8_t pcaChannel, uint16_t ticks) {
   pwm.setPWM(pcaChannel, 0, ticks);
 }
 
+static void setChannelFree(uint8_t pcaChannel) {
+  if (!pcaReady) return;
+  // Full-off bit (LEDn_OFF_H bit4) via Adafruit helper:
+  pwm.setPWM(pcaChannel, 0, 4096);
+}
+
 static void flushCurrentToPca() {
   if (!pcaReady) return;
+  if (outputsFree) return;
 
   // Fast path: push channels 0..3 in one I2C burst so all joints update in one control tick.
   uint16_t ticksByChannel[4] = {0, 0, 0, 0};
@@ -207,6 +215,13 @@ static void applyNeutral() {
   applyTargetsNow();
 }
 
+static void freeAllOutputs() {
+  if (!pcaReady) return;
+  for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
+    setChannelFree(kPcaChannel[j]);
+  }
+}
+
 static void armPcaReassert() {
   pcaReassertRemaining = PCA_REASSERT_CYCLES;
   lastPcaReassertMs = 0;
@@ -214,6 +229,7 @@ static void armPcaReassert() {
 
 static void refreshPcaOutputs() {
   if (!pcaReady) return;
+  if (outputsFree) return;
   pwm.setPWMFreq(SERVO_FREQ_HZ);
   applyTargetsNow();
 }
@@ -260,6 +276,8 @@ static void printStatus() {
   Serial.print(slewDegPerSec, 1);
   Serial.print(F(" pca_ready="));
   Serial.print(pcaReady ? F("1") : F("0"));
+  Serial.print(F(" free_mode="));
+  Serial.print(outputsFree ? F("1") : F("0"));
   Serial.println();
 }
 
@@ -268,6 +286,8 @@ static void printHelp() {
   Serial.println(F("  PING"));
   Serial.println(F("  HELP"));
   Serial.println(F("  NEUTRAL"));
+  Serial.println(F("  MOUNT_MODE   (go neutral and hold torque)"));
+  Serial.println(F("  FREE         (disable PWM outputs for manual horn alignment)"));
   Serial.println(F("  SET_SERVO <wrist> <elbow> <base> <shoulder>   (integer degrees)"));
   Serial.println(F("  SET_PWM <ch 0-3> <ticks 0-4095>   (bench raw; degree cache unchanged)"));
   Serial.println(F("  SET_SLEW <deg_per_sec>"));
@@ -327,6 +347,7 @@ static void handleLine(char* line) {
     return;
   }
   if (strcmp(cmd, "NEUTRAL") == 0) {
+    outputsFree = false;
     for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
       targetDeg[j] = kNeutralDeg[j];
     }
@@ -335,6 +356,32 @@ static void handleLine(char* line) {
       Serial.println(F("OK NEUTRAL"));
     } else {
       Serial.println(F("OK NEUTRAL queued (PCA not ready)"));
+    }
+    if (debugEnabled) printStatus();
+    return;
+  }
+  if (strcmp(cmd, "MOUNT_MODE") == 0) {
+    outputsFree = false;
+    for (uint8_t j = 0; j < NUM_JOINTS; ++j) {
+      targetDeg[j] = kNeutralDeg[j];
+    }
+    if (pcaReady) {
+      applyNeutral();
+      Serial.println(F("OK MOUNT_MODE neutral_holding"));
+    } else {
+      Serial.println(F("OK MOUNT_MODE queued (PCA not ready)"));
+    }
+    if (debugEnabled) printStatus();
+    return;
+  }
+  if (strcmp(cmd, "FREE") == 0) {
+    outputsFree = true;
+    pcaReassertRemaining = 0;
+    if (pcaReady) {
+      freeAllOutputs();
+      Serial.println(F("OK FREE outputs_disabled"));
+    } else {
+      Serial.println(F("OK FREE queued (PCA not ready)"));
     }
     if (debugEnabled) printStatus();
     return;
@@ -350,7 +397,11 @@ static void handleLine(char* line) {
   if (strcmp(cmd, "PCA_REINIT") == 0) {
     pcaReady = false;
     if (tryInitPca9685()) {
-      applyTargetsNow();
+      if (!outputsFree) {
+        applyTargetsNow();
+      } else {
+        freeAllOutputs();
+      }
       Serial.println(F("OK PCA_REINIT"));
     } else {
       Serial.println(F("ERR PCA_REINIT failed (PCA not detected)"));
@@ -400,6 +451,7 @@ static void handleLine(char* line) {
       Serial.println(F("ERR ticks must be 0-4095"));
       return;
     }
+    outputsFree = false;
     setChannelPwmTicks(static_cast<uint8_t>(ch), static_cast<uint16_t>(tk));
     Serial.println(F("OK SET_PWM (degree cache unchanged; use SET_SERVO to resync)"));
     return;
@@ -422,6 +474,7 @@ static void handleLine(char* line) {
     targetDeg[J_ELBOW] = clampJoint(J_ELBOW, e);
     targetDeg[J_BASE] = clampJoint(J_BASE, b);
     targetDeg[J_SHOULDER] = clampJoint(J_SHOULDER, s);
+    outputsFree = false;
 
     if (!pcaReady) {
       Serial.println(F("OK SET_SERVO queued (PCA not ready)"));
@@ -487,14 +540,14 @@ void loop() {
     } else {
       const bool startupWindow = (now - pcaOnlineSinceMs) < PCA_STARTUP_STABILIZE_MS;
       const unsigned long refreshMs = startupWindow ? PCA_STARTUP_REFRESH_MS : PCA_KEEPALIVE_MS;
-      if (lastPcaKeepaliveMs == 0 || now - lastPcaKeepaliveMs >= refreshMs) {
+      if (!outputsFree && (lastPcaKeepaliveMs == 0 || now - lastPcaKeepaliveMs >= refreshMs)) {
         lastPcaKeepaliveMs = now;
         refreshPcaOutputs();
       }
     }
   }
 
-  if (pcaReady && pcaReassertRemaining > 0 &&
+  if (!outputsFree && pcaReady && pcaReassertRemaining > 0 &&
       (lastPcaReassertMs == 0 || now - lastPcaReassertMs >= PCA_REASSERT_INTERVAL_MS)) {
     lastPcaReassertMs = now;
     applyTargetsNow();
@@ -503,7 +556,7 @@ void loop() {
 
   if (now - lastServoMs >= 1000UL / SERVO_HZ) {
     lastServoMs = now;
-    if (pcaReady && slewDegPerSec > 0.0f) {
+    if (!outputsFree && pcaReady && slewDegPerSec > 0.0f) {
       updateSlew();
     }
   }

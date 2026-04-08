@@ -66,12 +66,12 @@ TRACK_Z_MM_PER_NORM = 2.2
 # Vertical Y->Z controller mode: "p" (legacy proportional) or "pid".
 Y_Z_CTRL_MODE = "pid"
 # PID tuning for vertical correction: image Y error -> target_z_mm delta (mm/frame), then clamped by MAX_Z_STEP_MM.
-# Softer = less overshoot / losing lock when moving vertically.
-Y_PID_KP = 0.48
-Y_PID_KI = 0.0025
-Y_PID_KD = 0.38
-Y_PID_I_CLAMP = 1.8
-Y_PID_D_ALPHA = 0.62
+# Higher Kp + lower deadband (below) = correct small off-center errors earlier; ZERR shoulder helps if IK favors elbow.
+Y_PID_KP = 0.58
+Y_PID_KI = 0.0032
+Y_PID_KD = 0.42
+Y_PID_I_CLAMP = 2.0
+Y_PID_D_ALPHA = 0.58
 Y_PID_RESET_ON_LOSS = True
 # Optional horizontal plane x target adjustment from image error (usually keep 0)
 TRACK_X_MM_PER_NORM = 0.0
@@ -91,9 +91,9 @@ TARGET_Z_MAX_MM = 170.0
 # Additional controller bounds / smoothing
 BASE_YAW_MAX_DEG = 180.0
 MAX_BASE_YAW_STEP_RAD = 0.052
-MAX_Z_STEP_MM = 0.5
+MAX_Z_STEP_MM = 0.62
 MAX_X_STEP_MM = 3.0
-FACE_CENTER_ALPHA = 0.22
+FACE_CENTER_ALPHA = 0.30
 
 # Distance control from face box size (applies in IK mode).
 # We estimate relative distance from detected face width in pixels:
@@ -115,8 +115,9 @@ DIST_Z_MM_PER_PX = 0.15
 DIST_Z_MAX_STEP_MM = 1.0
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
-TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 1.0
-TRACK_SHOULDER_ASSIST_MAX_DEG = 5
+# Elbow was dominating; raise shoulder so the vertical chain lifts with both joints.
+TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 3.2
+TRACK_SHOULDER_ASSIST_MAX_DEG = 14
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
@@ -125,30 +126,31 @@ DIST_SIGN_SHOULDER = 1.0
 DIST_SHOULDER_SMOOTH_ALPHA = 0.15
 DIST_SHOULDER_MAX_STEP_PER_FRAME_DEG = 1
 # Additional shoulder assist from measured z error (mm -> deg).
-ZERR_SHOULDER_ASSIST_ENABLE = False
-ZERR_SHOULDER_DEG_PER_MM = 0.10
-ZERR_SHOULDER_MAX_DEG = 8
+# When IK mostly bends the elbow, this nudges shoulder so the tip actually reaches target_z.
+ZERR_SHOULDER_ASSIST_ENABLE = True
+ZERR_SHOULDER_DEG_PER_MM = 0.11
+ZERR_SHOULDER_MAX_DEG = 10
 ZERR_SIGN_SHOULDER = 1.0
 # Elbow assist in IK mode for vertical compensation.
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 2.0
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 1.7
 TRACK_ELBOW_ASSIST_MAX_DEG = 10
-ELBOW_SMOOTH_ALPHA = 0.06
+ELBOW_SMOOTH_ALPHA = 0.10
 ELBOW_MAX_STEP_PER_FRAME_DEG = 1
 ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 2
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
-LOCK_IN_FRAMES = 10
-ENGAGE_UP_PER_FRAME = 0.11
+LOCK_IN_FRAMES = 6
+ENGAGE_UP_PER_FRAME = 0.17
 ENGAGE_DOWN_PER_FRAME = 0.28
 
 # First acquisition after no-face: optional slow blend from neutral toward IK (can jerk on re-acquire).
 # On: after no-face, first re-acquire blends shoulder/elbow from neutral toward IK in two slow phases.
 FIRST_FIND_EXTEND_ENABLE = True
 FIRST_FIND_EXTEND_FRACTION = 0.18  # first phase stops at this fraction of (IK - neutral) on shoulder/elbow
-FIRST_FIND_TO_QUARTER_PER_FRAME = 0.011
-FIRST_FIND_TO_FULL_PER_FRAME = 0.02
+FIRST_FIND_TO_QUARTER_PER_FRAME = 0.016
+FIRST_FIND_TO_FULL_PER_FRAME = 0.028
 # If vertical error is inside deadband (face near center), still nudge IK so shoulder/elbow have a target.
-FIRST_FIND_MIN_VERTICAL_NORM = 0.12
+FIRST_FIND_MIN_VERTICAL_NORM = 0.06
 # Extra degrees added to IK shoulder/elbow *targets* so first-find always has something to reach toward
 # (IK alone is often still ~neutral when engage was masking error). Flip signs if the arm moves wrong way.
 FIRST_FIND_BIAS_SHOULDER_DEG = 10.0
@@ -173,8 +175,8 @@ NO_FACE_WRIST_RETURN_DEG_PER_FRAME = 4.0
 NO_FACE_ELBOW_RETURN_DEG_PER_FRAME = 4.0
 NO_FACE_SHOULDER_RETURN_DEG_PER_FRAME = 3.0
 
-# Normalized error deadband (0..1) — ignore jitter inside this band
-TRACK_DEADBAND = 0.04
+# Normalized error deadband (0..1) — ignore jitter inside this band (large values = only correct at big error).
+TRACK_DEADBAND = 0.014
 
 # Adaptive ramping:
 # Start with gentle correction, then ramp up if target stays outside center for multiple frames.

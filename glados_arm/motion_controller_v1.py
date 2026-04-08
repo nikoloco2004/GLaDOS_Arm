@@ -397,7 +397,11 @@ class MotionControllerV1:
                 )
                 if y_eff > 0.0 and y_abs < near_norm:
                     down_deg *= near_scale
-                wrist_cmd = int(round(float(config.NEUTRAL_WRIST) - down_deg))
+                wrist_target = float(config.NEUTRAL_WRIST) - down_deg
+                wrist_step = max(1, int(getattr(vc, "LOWER_BOUND_WRIST_ONLY_MAX_STEP_DEG", 1)))
+                wrist_cmd = int(
+                    round(step_toward(float(self.last_valid_cmd.wrist), float(wrist_target), float(wrist_step)))
+                )
                 cmd = ServoCommand(
                     wrist=wrist_cmd,
                     elbow=self.last_valid_cmd.elbow,

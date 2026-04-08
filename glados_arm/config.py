@@ -55,8 +55,9 @@ BASE_YAW_SIGN = 1.0
 BASE_RAD_TO_SERVO_DEG = 180.0 / math.pi
 
 # Shoulder: model angle is offset from neutral (rad). 0 = neutral pose.
-# Flipped to -1.0 based on IK benchmark evidence: large clipped_shoulder_min with elbow_up.
-SHOULDER_SIGN = -1.0
+# +1.0: positive IK q_shoulder increases servo degrees from NEUTRAL_SHOULDER (typical if shoulder
+# lifts tip with increasing command). Use -1.0 if your install maps positive q to negative servo.
+SHOULDER_SIGN = 1.0
 SHOULDER_RAD_TO_SERVO_DEG = 180.0 / math.pi  # 1 model rad ≈ this many servo degrees (tune)
 
 # Elbow (new hardware mapping): "up" model motion should increase servo command from neutral.

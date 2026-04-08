@@ -465,6 +465,17 @@ class MotionControllerV1:
                 self.ik_status = solved.message
             self.ik_clip_notes = filtered_notes
 
+            # If upward demand pushed target beyond reachable geometry, back off z and retry.
+            if (not solved.ik.ok) and z_step > 0:
+                backoff = max(abs(float(z_step)), max(0.5, float(dz)))
+                self.target_z_mm -= backoff
+                self.target_z_mm = max(
+                    float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)),
+                    min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), self.target_z_mm),
+                )
+                tz = self.target_z_mm
+                continue
+
             if "clipped_shoulder_min" in solved.clip_notes and z_step > 0:
                 self.target_z_mm -= z_step
                 self.target_z_mm = max(
@@ -496,6 +507,15 @@ class MotionControllerV1:
                 q_wrist_rad=q_wrist_use,
                 prefer=ik_prefer,
             )
+            if (not solved2.ik.ok) and z_step > 0:
+                backoff = max(abs(float(z_step)), max(0.5, float(dz)))
+                self.target_z_mm -= backoff
+                self.target_z_mm = max(
+                    float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)),
+                    min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), self.target_z_mm),
+                )
+                tz = self.target_z_mm
+                continue
             if solved2.ik.ok:
                 self.last_ik_solution = solved2.ik.solution
 

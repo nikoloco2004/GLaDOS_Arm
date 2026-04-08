@@ -79,7 +79,7 @@ BASE_PID_NEAR_STEP_SCALE = 0.45
 BASE_PID_ZERO_CROSS_HOLD_FRAMES = 0
 # Image Y correction (normalized) -> vertical target z delta (mm/frame) when Y_Z_CTRL_MODE == "p".
 # Direct P on error each frame (no integral windup) — use this instead of PID when vertical feels "zoomy".
-TRACK_Z_MM_PER_NORM = 3.4
+TRACK_Z_MM_PER_NORM = 4.2
 # Vertical Y->Z controller mode: "p" (proportional, recommended) or "pid" (can overshoot / oscillate).
 Y_Z_CTRL_MODE = "p"
 # PID tuning (only if Y_Z_CTRL_MODE == "pid")
@@ -112,7 +112,7 @@ MAX_BASE_YAW_STEP_RAD = 0.030
 # First-lock anti-overshoot: cap base yaw step on initial face acquisition, then ramp up.
 BASE_FIRST_LOCK_STEP_FRAMES = 16
 BASE_FIRST_LOCK_STEP_SCALE = 0.18
-MAX_Z_STEP_MM = 1.05
+MAX_Z_STEP_MM = 1.4
 MAX_X_STEP_MM = 3.0
 FACE_CENTER_ALPHA = 0.30
 # Use unfiltered face Y for vertical error so the arm reacts immediately (filt_cy lags by seconds).
@@ -140,8 +140,8 @@ DIST_Z_MAX_STEP_MM = 1.0
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
 # Elbow was dominating; raise shoulder so the vertical chain lifts with both joints.
-TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 6.0
-TRACK_SHOULDER_ASSIST_MAX_DEG = 24
+TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 9.0
+TRACK_SHOULDER_ASSIST_MAX_DEG = 32
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
@@ -152,8 +152,8 @@ DIST_SHOULDER_MAX_STEP_PER_FRAME_DEG = 1
 # Additional shoulder assist from measured z error (mm -> deg).
 # When IK mostly bends the elbow, this nudges shoulder so the tip actually reaches target_z.
 ZERR_SHOULDER_ASSIST_ENABLE = True
-ZERR_SHOULDER_DEG_PER_MM = 0.11
-ZERR_SHOULDER_MAX_DEG = 16
+ZERR_SHOULDER_DEG_PER_MM = 0.16
+ZERR_SHOULDER_MAX_DEG = 22
 ZERR_SIGN_SHOULDER = 1.0
 # Lower-bound behavior: if Y asks down while chain is at lower bound, use wrist-only down trim.
 LOWER_BOUND_WRIST_ONLY_ENABLE = True
@@ -162,19 +162,19 @@ LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM = 80.0
 # Prioritize shoulder+elbow ("proximal joints") before wrist during vertical tracking.
 # Wrist command is held until proximal joint deltas are small; keeps wrist from leading.
 VERTICAL_PROXIMAL_FIRST_ENABLE = True
-VERTICAL_PROXIMAL_FIRST_SHOULDER_THRESH_DEG = 1.0
-VERTICAL_PROXIMAL_FIRST_ELBOW_THRESH_DEG = 1.0
+VERTICAL_PROXIMAL_FIRST_SHOULDER_THRESH_DEG = 2.0
+VERTICAL_PROXIMAL_FIRST_ELBOW_THRESH_DEG = 2.0
 # Upward command guard: prevent shoulder from being pulled down when Y requests up;
 # if chain is pinned at (shoulder min, elbow max), force a tiny coupled escape step.
 UPWARD_MONOTONIC_GUARD_ENABLE = True
 UPWARD_MONOTONIC_EPS_NORM = 0.03
 UPWARD_UNSTICK_STEP_DEG = 1
 # Elbow assist in IK mode for vertical compensation.
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 0.8
-TRACK_ELBOW_ASSIST_MAX_DEG = 6
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 2.0
+TRACK_ELBOW_ASSIST_MAX_DEG = 12
 ELBOW_SMOOTH_ALPHA = 0.10
 ELBOW_MAX_STEP_PER_FRAME_DEG = 1
-ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 1
+ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 2
 
 # Engagement smoothing to prevent snap-to-target when a face first appears.
 LOCK_IN_FRAMES = 2
@@ -196,12 +196,12 @@ FIRST_FIND_BIAS_ELBOW_DEG = -8.0
 
 # Wrist participation for vertical correction in IK mode.
 # Command is: sign * corr_y_ctrl * TRACK_WRIST_DEG_PER_NORM, with min active step/cap below.
-TRACK_WRIST_DEG_PER_NORM = 18.0
+TRACK_WRIST_DEG_PER_NORM = 8.0
 TRACK_WRIST_MIN_STEP_DEG = 1
 TRACK_WRIST_MAX_TRIM_DEG = 95
 SIGN_ERROR_Y_WRIST = 1.0  # wrist was correct; only shoulder/elbow use inverted Y sign below
-WRIST_SMOOTH_ALPHA = 0.42
-WRIST_MAX_STEP_PER_FRAME_DEG = 2
+WRIST_SMOOTH_ALPHA = 0.20
+WRIST_MAX_STEP_PER_FRAME_DEG = 1
 
 # When no face is detected, gently settle vertical chain toward neutral so it
 # does not remain "looking up" at the last lock point.

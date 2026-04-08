@@ -469,7 +469,9 @@ class MotionControllerV1:
         wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
         wrist_trim_deg = max(-wrist_max_trim, min(wrist_max_trim, wrist_trim_deg))
         wrist_alpha = clamp(float(getattr(vc, "WRIST_SMOOTH_ALPHA", 0.25)), 0.0, 1.0)
-        self.wrist_trim_state = (1.0 - wrist_alpha) * self.wrist_trim_state + float(wrist_trim_deg)
+        self.wrist_trim_state = (
+            (1.0 - wrist_alpha) * self.wrist_trim_state + wrist_alpha * float(wrist_trim_deg)
+        )
         wrist_trim_deg = int(round(self.wrist_trim_state))
         wrist_step_max = max(1, int(getattr(vc, "WRIST_MAX_STEP_PER_FRAME_DEG", 4)))
         wrist_trim_deg = int(

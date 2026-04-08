@@ -23,9 +23,10 @@ import time
 import cv2
 import numpy as np
 
-from . import config, kinematics, vision_config
-from .controller import RobotController, solve_vertical_plane
-from .mapping import ServoCommand, clamp_servo, servo_to_model
+from . import config, kinematics, motion_config_v1 as mv1, vision_config
+from .controller import RobotController
+from .mapping import ServoCommand, clamp_servo
+from .motion_controller_v1 import MotionControllerV1, VisionMeasurement
 from .serial_comm import ArmSerial
 
 _HAAR_XML = "haarcascade_frontalface_default.xml"
@@ -290,17 +291,15 @@ def run_tracking(
         # used to differ from validated neutral and caused a snap when a face was first tracked.
         controller.neutral()
 
-    cmd = _neutral_command()
-    last_valid_cmd = cmd
-
-    # IK state (default control path)
     fk0 = kinematics.forward_kinematics(0.0, 0.0)
-    target_x_mm = fk0.tip.x
-    target_z_mm = fk0.tip.z
-    base_yaw_rad = 0.0
-    ik_status = "init"
-    ik_clip_notes: list[str] = []
     base_yaw_lim = _base_yaw_limit_rad()
+    motion = MotionControllerV1(
+        vc,
+        mv1,
+        fk0_tip_x=fk0.tip.x,
+        fk0_tip_z=fk0.tip.z,
+        base_yaw_lim=base_yaw_lim,
+    )
 
     ctl = (control_mode or getattr(vc, "CONTROL_MODE", "ik")).strip().lower()
     if ctl not in ("ik", "proportional"):
@@ -354,24 +353,10 @@ def run_tracking(
     filt_face_w: float | None = None
     x_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
     y_ramp = float(getattr(vc, "RAMP_MIN", 1.0))
-    wrist_trim_state = 0.0
-    wrist_trim_last = 0
-    elbow_assist_state = 0.0
-    elbow_assist_last = 0
-    elbow_cmd_last = int(config.NEUTRAL_ELBOW)
-    shoulder_dist_state = 0.0
-    shoulder_dist_last = 0
     face_lock_frames = 0
     engage = 0.0
     last_face_seen_t = time.time()
     no_face_neutral_sent = False
-    base_pid_i = 0.0
-    base_pid_prev_e = 0.0
-    base_pid_d = 0.0
-    base_zero_cross_hold = 0
-    y_pid_i = 0.0
-    y_pid_prev_e = 0.0
-    y_pid_d = 0.0
     prev_had_face = False
     first_find_phase = "idle"
     first_find_ramp = 0.0
@@ -453,7 +438,9 @@ def run_tracking(
                         first_find_phase = "to_quarter"
                         first_find_ramp = 0.0
                 last_face_seen_t = now_t
+                motion.last_face_seen_t = now_t
                 no_face_neutral_sent = False
+                motion.no_face_neutral_sent = False
                 face_lock_frames += 1
                 areas = [fw * fh for (_x, _y, fw, fh) in faces]
                 i = int(np.argmax(areas))
@@ -545,372 +532,63 @@ def run_tracking(
                         corr_y_ik = corr_y_vert
                 else:
                     corr_y_ik = corr_y_pre_eng
-                wrist_cmd = (
-                    float(getattr(vc, "SIGN_ERROR_Y_WRIST", 1.0))
-                    * corr_y_vert
-                    * float(getattr(vc, "TRACK_WRIST_DEG_PER_NORM", 0.8))
+                vm = VisionMeasurement(
+                    face_detected=True,
+                    err_x_norm=corr_x_norm,
+                    err_y_norm=corr_y_norm,
+                    corr_x_norm_raw=err_x,
+                    corr_y_norm_raw=err_y,
+                    filt_face_w=filt_face_w,
+                    face_w_px=fw,
+                    t_seconds=now_t,
                 )
-                wrist_trim_deg = int(round(wrist_cmd))
-                wrist_min_step = max(0, int(getattr(vc, "TRACK_WRIST_MIN_STEP_DEG", 0)))
-                if wrist_trim_deg == 0 and abs(corr_y_vert) > 1e-6 and wrist_min_step > 0:
-                    wrist_trim_deg = wrist_min_step if wrist_cmd > 0.0 else -wrist_min_step
-                wrist_max_trim = max(0, int(getattr(vc, "TRACK_WRIST_MAX_TRIM_DEG", 35)))
-                wrist_trim_deg = max(-wrist_max_trim, min(wrist_max_trim, wrist_trim_deg))
-                wrist_alpha = _clamp(float(getattr(vc, "WRIST_SMOOTH_ALPHA", 0.25)), 0.0, 1.0)
-                wrist_trim_state = (1.0 - wrist_alpha) * wrist_trim_state + wrist_alpha * float(wrist_trim_deg)
-                wrist_trim_deg = int(round(wrist_trim_state))
-                wrist_step_max = max(1, int(getattr(vc, "WRIST_MAX_STEP_PER_FRAME_DEG", 4)))
-                wrist_trim_deg = int(
-                    round(
-                        _step_toward(
-                            float(wrist_trim_last),
-                            float(wrist_trim_deg),
-                            float(wrist_step_max),
-                        )
-                    )
-                )
-                wrist_trim_last = wrist_trim_deg
-                shoulder_assist_deg = int(
-                    round(
-                        float(getattr(vc, "SIGN_ERROR_Y_SHOULDER", 1.0))
-                        * corr_y_vert
-                        * float(getattr(vc, "TRACK_SHOULDER_ASSIST_DEG_PER_NORM", 0.0))
-                    )
-                )
-                shoulder_assist_max = max(0, int(getattr(vc, "TRACK_SHOULDER_ASSIST_MAX_DEG", 0)))
-                shoulder_assist_deg = max(-shoulder_assist_max, min(shoulder_assist_max, shoulder_assist_deg))
-                elbow_assist_deg = int(
-                    round(
-                        float(getattr(vc, "SIGN_ERROR_Y_ELBOW", 1.0))
-                        * corr_y_vert
-                        * float(getattr(vc, "TRACK_ELBOW_ASSIST_DEG_PER_NORM", 0.0))
-                    )
-                )
-                elbow_assist_max = max(0, int(getattr(vc, "TRACK_ELBOW_ASSIST_MAX_DEG", 0)))
-                elbow_assist_deg = max(-elbow_assist_max, min(elbow_assist_max, elbow_assist_deg))
-                elbow_alpha = _clamp(float(getattr(vc, "ELBOW_SMOOTH_ALPHA", 0.25)), 0.0, 1.0)
-                elbow_assist_state = (1.0 - elbow_alpha) * elbow_assist_state + elbow_alpha * float(elbow_assist_deg)
-                elbow_assist_deg = int(round(elbow_assist_state))
-                elbow_step_max = max(1, int(getattr(vc, "ELBOW_MAX_STEP_PER_FRAME_DEG", 3)))
-                elbow_assist_deg = int(
-                    round(_step_toward(float(elbow_assist_last), float(elbow_assist_deg), float(elbow_step_max)))
-                )
-                elbow_assist_last = elbow_assist_deg
+                motion.face_lock_frames = face_lock_frames
+                motion.engage = engage
 
                 if ctl == "ik":
-                    shoulder_dist_assist_deg = 0
-                    max_base_step = float(getattr(vc, "MAX_BASE_YAW_STEP_RAD", 0.08))
-                    x_ctrl_mode = str(getattr(vc, "BASE_X_CTRL_MODE", "p")).strip().lower()
-                    if x_ctrl_mode == "pid":
-                        # PID on horizontal image error -> base yaw step (rad/frame).
-                        e = float(vc.SIGN_ERROR_X_BASE) * corr_x_ctrl
-                        kp = float(getattr(vc, "BASE_PID_KP", 0.07))
-                        ki = float(getattr(vc, "BASE_PID_KI", 0.0))
-                        kd = float(getattr(vc, "BASE_PID_KD", 0.02))
-                        i_clamp = max(0.0, float(getattr(vc, "BASE_PID_I_CLAMP", 2.0)))
-                        d_alpha = _clamp(float(getattr(vc, "BASE_PID_D_ALPHA", 0.35)), 0.0, 1.0)
-
-                        prev_e = base_pid_prev_e
-                        # Reset integral when crossing center to avoid carryover-driven overshoot.
-                        crossed_zero = prev_e * e < 0.0
-                        if crossed_zero:
-                            base_pid_i = 0.0
-                        base_pid_i += e
-                        base_pid_i = _clamp(base_pid_i, -i_clamp, i_clamp)
-                        d_raw = e - base_pid_prev_e
-                        base_pid_d = (1.0 - d_alpha) * base_pid_d + d_alpha * d_raw
-                        base_unclamped = kp * e + ki * base_pid_i + kd * base_pid_d
-                        base_step = _clamp(base_unclamped, -max_base_step, max_base_step)
-                        # Basic anti-windup: undo this frame's integral if output is saturating further.
-                        if abs(base_unclamped - base_step) > 1e-9 and abs(e) > 1e-9:
-                            if (base_unclamped > 0.0 and e > 0.0) or (base_unclamped < 0.0 and e < 0.0):
-                                base_pid_i -= e
-                        # Additional brake right at error sign-crossing to prevent ring.
-                        if crossed_zero:
-                            cross_brake = _clamp(
-                                float(getattr(vc, "BASE_PID_ZERO_CROSS_BRAKE", 0.45)),
-                                0.0,
-                                1.0,
-                            )
-                            base_step *= cross_brake
-                            base_zero_cross_hold = max(
-                                0, int(getattr(vc, "BASE_PID_ZERO_CROSS_HOLD_FRAMES", 2))
-                            )
-                        near_err = abs(e) < float(getattr(vc, "BASE_PID_NEAR_ERROR", 0.10))
-                        if near_err:
-                            near_scale = _clamp(
-                                float(getattr(vc, "BASE_PID_NEAR_STEP_SCALE", 0.35)),
-                                0.0,
-                                1.0,
-                            )
-                            base_step *= near_scale
-                        if base_zero_cross_hold > 0 and near_err:
-                            base_step = 0.0
-                            base_zero_cross_hold -= 1
-                        base_pid_prev_e = e
-                    else:
-                        base_step = (
-                            vc.SIGN_ERROR_X_BASE * corr_x_ctrl * float(getattr(vc, "TRACK_BASE_RAD_PER_NORM", 0.04))
-                        )
-                    base_step = _clamp(
-                        base_step,
-                        -max_base_step,
-                        max_base_step,
+                    cmd = motion.process_ik(
+                        vm,
+                        corr_x_ctrl=corr_x_ctrl,
+                        corr_y_vert=corr_y_vert,
+                        corr_y_ik=corr_y_ik,
+                        corr_y_norm=corr_y_norm,
+                        engage=engage,
+                        dt=dt,
                     )
-                    base_yaw_rad += base_step
-                    base_yaw_rad = _clamp(base_yaw_rad, -base_yaw_lim, base_yaw_lim)
-
-                    y_for_z = corr_y_ik + float(getattr(vc, "SIGN_ERROR_X_TO_Z", 1.0)) * float(
-                        getattr(vc, "TRACK_Z_FROM_X_MIX", 0.0)
-                    ) * corr_x_ctrl
-                    y_for_z = _clamp(y_for_z, -1.0, 1.0)
-                    y_ctrl_mode = str(getattr(vc, "Y_Z_CTRL_MODE", "p")).strip().lower()
-                    ye = float(vc.SIGN_ERROR_Y_SHOULDER) * y_for_z
-                    z_step = 0.0
-                    if y_ctrl_mode == "pid":
-                        ykp = float(getattr(vc, "Y_PID_KP", 1.8))
-                        yki = float(getattr(vc, "Y_PID_KI", 0.03))
-                        ykd = float(getattr(vc, "Y_PID_KD", 0.8))
-                        yi_clamp = max(0.0, float(getattr(vc, "Y_PID_I_CLAMP", 2.5)))
-                        yd_alpha = _clamp(float(getattr(vc, "Y_PID_D_ALPHA", 0.35)), 0.0, 1.0)
-
-                        y_pid_i += ye
-                        y_pid_i = _clamp(y_pid_i, -yi_clamp, yi_clamp)
-                        y_d_raw = ye - y_pid_prev_e
-                        y_pid_d = (1.0 - yd_alpha) * y_pid_d + yd_alpha * y_d_raw
-                        z_unclamped = ykp * ye + yki * y_pid_i + ykd * y_pid_d
-                        z_step = z_unclamped
-                        # anti-windup on saturation direction
-                        z_cap = float(getattr(vc, "MAX_Z_STEP_MM", 10.0))
-                        z_tmp = _clamp(z_unclamped, -z_cap, z_cap)
-                        if abs(z_unclamped - z_tmp) > 1e-9 and abs(ye) > 1e-9:
-                            if (z_unclamped > 0.0 and ye > 0.0) or (z_unclamped < 0.0 and ye < 0.0):
-                                y_pid_i -= ye
-                        y_pid_prev_e = ye
-                    else:
-                        z_step = (
-                            vc.SIGN_ERROR_Y_SHOULDER * y_for_z * float(getattr(vc, "TRACK_Z_MM_PER_NORM", 10.0))
-                        )
-                    z_step = _clamp(
-                        z_step,
-                        -float(getattr(vc, "MAX_Z_STEP_MM", 10.0)),
-                        float(getattr(vc, "MAX_Z_STEP_MM", 10.0)),
-                    )
-                    target_z_mm += z_step
-
-                    x_step = (
-                        vc.SIGN_ERROR_X_BASE * corr_x_ctrl * float(getattr(vc, "TRACK_X_MM_PER_NORM", 0.0))
-                    )
-                    x_step = _clamp(
-                        x_step,
-                        -float(getattr(vc, "MAX_X_STEP_MM", 3.0)),
-                        float(getattr(vc, "MAX_X_STEP_MM", 3.0)),
-                    )
-                    target_x_mm += x_step
-
-                    if bool(getattr(vc, "DIST_CONTROL_ENABLE", True)):
-                        desired_face_w = float(getattr(vc, "DESIRED_FACE_WIDTH_PX", 160.0))
-                        dist_db = max(0.0, float(getattr(vc, "DIST_DEADBAND_PX", 10.0)))
-                        dist_err_limit = max(1.0, float(getattr(vc, "DIST_ERR_CLAMP_PX", 120.0)))
-                        dist_mm_per_px = float(getattr(vc, "DIST_MM_PER_PX", 0.35))
-                        dist_max_step = max(0.1, float(getattr(vc, "DIST_MAX_STEP_MM", 8.0)))
-                        dist_z_mm_per_px = float(getattr(vc, "DIST_Z_MM_PER_PX", 0.0))
-                        dist_z_max_step = max(0.0, float(getattr(vc, "DIST_Z_MAX_STEP_MM", 0.0)))
-
-                        dist_allowed = (not bool(getattr(vc, "DIST_ENABLE_AFTER_LOCK", True))) or (engage >= 0.95)
-                        if dist_allowed:
-                            measured_face_w = float(filt_face_w if filt_face_w is not None else fw)
-                            dist_err_px = desired_face_w - measured_face_w
-                            if abs(dist_err_px) < dist_db:
-                                dist_err_px = 0.0
-                            dist_err_px = _clamp(dist_err_px, -dist_err_limit, dist_err_limit)
-                            dist_step_mm = _clamp(
-                                float(getattr(vc, "DIST_SIGN_X", 1.0)) * dist_err_px * dist_mm_per_px,
-                                -dist_max_step,
-                                dist_max_step,
-                            )
-                            # Smaller face (farther) => positive dist_err => increase x target (reach out).
-                            target_x_mm += dist_step_mm
-                            dist_step_z_mm = _clamp(
-                                float(getattr(vc, "DIST_SIGN_Z", 1.0)) * dist_err_px * dist_z_mm_per_px,
-                                -dist_z_max_step,
-                                dist_z_max_step,
-                            )
-                            target_z_mm += dist_step_z_mm
-
-                    if bool(getattr(vc, "DIST_SHOULDER_ASSIST_ENABLE", True)):
-                        shoulder_dist_assist_deg = int(
-                            round(
-                                float(getattr(vc, "DIST_SIGN_SHOULDER", 1.0))
-                                * dist_err_px
-                                * float(getattr(vc, "DIST_SHOULDER_DEG_PER_PX", 0.0))
-                            )
-                        )
-                        shoulder_dist_max = max(0, int(getattr(vc, "DIST_SHOULDER_MAX_DEG", 28)))
-                        shoulder_dist_assist_deg = max(
-                            -shoulder_dist_max, min(shoulder_dist_max, shoulder_dist_assist_deg)
-                        )
-                        shoulder_dist_alpha = _clamp(
-                            float(getattr(vc, "DIST_SHOULDER_SMOOTH_ALPHA", 0.15)), 0.0, 1.0
-                        )
-                        shoulder_dist_state = (
-                            (1.0 - shoulder_dist_alpha) * shoulder_dist_state
-                            + shoulder_dist_alpha * float(shoulder_dist_assist_deg)
-                        )
-                        shoulder_dist_assist_deg = int(round(shoulder_dist_state))
-                        shoulder_dist_step_max = max(
-                            1, int(getattr(vc, "DIST_SHOULDER_MAX_STEP_PER_FRAME_DEG", 1))
-                        )
-                        shoulder_dist_assist_deg = int(
-                            round(
-                                _step_toward(
-                                    float(shoulder_dist_last),
-                                    float(shoulder_dist_assist_deg),
-                                    float(shoulder_dist_step_max),
-                                )
-                            )
-                        )
-                        shoulder_dist_last = shoulder_dist_assist_deg
-
-                    target_x_mm = max(float(getattr(vc, "TARGET_X_MIN_MM", 100.0)), min(float(getattr(vc, "TARGET_X_MAX_MM", 230.0)), target_x_mm))
-                    target_z_mm = max(float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)), min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm))
-
-                    solved = solve_vertical_plane(
-                        x_mm=target_x_mm,
-                        z_mm=target_z_mm,
-                        base_yaw_rad=base_yaw_rad,
-                        q_wrist_rad=0.0,
-                        prefer=str(getattr(vc, "IK_PREFER", "elbow_up")),
-                    )
-                    filtered_notes = [n for n in solved.clip_notes if not n.startswith("clipped_base_")]
-                    if solved.ik.ok:
-                        ik_status = "ok" if not filtered_notes else "servo_limits_clipped:" + ",".join(filtered_notes)
-                    else:
-                        ik_status = solved.message
-                    ik_clip_notes = filtered_notes
-                    # Anti-windup: if vertical chain hits shoulder minimum, stop integrating z further
-                    # in the same "upward" direction for this frame.
-                    if "clipped_shoulder_min" in solved.clip_notes and z_step > 0:
-                        target_z_mm -= z_step
-                        target_z_mm = max(
-                            float(getattr(vc, "TARGET_Z_MIN_MM", 0.0)),
-                            min(float(getattr(vc, "TARGET_Z_MAX_MM", 190.0)), target_z_mm),
-                        )
-                    vertical_ok = len(filtered_notes) == 0
-                    if vertical_ok and solved.ik.ok:
-                        cmd = ServoCommand(
-                            wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=solved.servo_clamped.elbow + elbow_assist_deg,
-                            base=solved.servo_clamped.base,
-                            shoulder=solved.servo_clamped.shoulder
-                            + shoulder_assist_deg
-                            + shoulder_dist_assist_deg,
-                        )
-                        cmd, _ = clamp_servo(cmd)
-                        last_valid_cmd = cmd
-                    elif bool(getattr(vc, "IK_ACCEPT_CLAMPED", True)) and solved.ik.ok:
-                        # Accept clamped command so base/x can still move even when vertical chain clips.
-                        cmd = ServoCommand(
-                            wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=solved.servo_clamped.elbow + elbow_assist_deg,
-                            base=solved.servo_clamped.base,
-                            shoulder=solved.servo_clamped.shoulder
-                            + shoulder_assist_deg
-                            + shoulder_dist_assist_deg,
-                        )
-                        cmd, _ = clamp_servo(cmd)
-                        last_valid_cmd = cmd
-                    elif bool(getattr(vc, "IK_HOLD_LAST_ON_FAIL", True)):
-                        # Preserve horizontal/base correction even when holding vertical state.
-                        cmd = ServoCommand(
-                            wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=last_valid_cmd.elbow + elbow_assist_deg,
-                            base=solved.servo_clamped.base,
-                            shoulder=last_valid_cmd.shoulder
-                            + shoulder_assist_deg
-                            + shoulder_dist_assist_deg,
-                        )
-                        cmd, _ = clamp_servo(cmd)
-                    else:
-                        cmd = ServoCommand(
-                            wrist=config.NEUTRAL_WRIST + wrist_trim_deg,
-                            elbow=solved.servo_clamped.elbow + elbow_assist_deg,
-                            base=solved.servo_clamped.base,
-                            shoulder=solved.servo_clamped.shoulder
-                            + shoulder_assist_deg
-                            + shoulder_dist_assist_deg,
-                        )
-                        cmd, _ = clamp_servo(cmd)
-
-                    # Real Z error: target plane Z minus estimated Z from the *actual commanded* joints.
-                    est_model = servo_to_model(cmd)
-                    est_fk = kinematics.forward_kinematics(est_model.q_shoulder_rad, est_model.q_elbow_rad)
-                    z_err_mm = target_z_mm - est_fk.tip.z
-                    shoulder_zerr_assist_deg = 0
-                    if bool(getattr(vc, "ZERR_SHOULDER_ASSIST_ENABLE", True)):
-                        shoulder_zerr_assist_deg = int(
-                            round(
-                                float(getattr(vc, "ZERR_SIGN_SHOULDER", 1.0))
-                                * z_err_mm
-                                * float(getattr(vc, "ZERR_SHOULDER_DEG_PER_MM", 0.0))
-                            )
-                        )
-                        shoulder_zerr_max = max(0, int(getattr(vc, "ZERR_SHOULDER_MAX_DEG", 35)))
-                        shoulder_zerr_assist_deg = max(
-                            -shoulder_zerr_max, min(shoulder_zerr_max, shoulder_zerr_assist_deg)
-                        )
-                        cmd = ServoCommand(
-                            wrist=cmd.wrist,
-                            elbow=cmd.elbow,
-                            base=cmd.base,
-                            shoulder=cmd.shoulder + shoulder_zerr_assist_deg,
-                        )
-                        cmd, _ = clamp_servo(cmd)
-                    # Final elbow command rate-limit to suppress IK-induced snapping.
-                    elbow_cmd_step = max(1, int(getattr(vc, "ELBOW_CMD_MAX_STEP_PER_FRAME_DEG", 2)))
-                    elbow_cmd = int(
-                        round(
-                            _step_toward(
-                                float(elbow_cmd_last),
-                                float(cmd.elbow),
-                                float(elbow_cmd_step),
-                            )
-                        )
-                    )
-                    cmd = ServoCommand(
-                        wrist=cmd.wrist,
-                        elbow=elbow_cmd,
-                        base=cmd.base,
-                        shoulder=cmd.shoulder,
-                    )
-                    cmd, _ = clamp_servo(cmd)
-                    elbow_cmd_last = cmd.elbow
-                    last_valid_cmd = cmd
+                    target_x_mm = motion.target_x_mm
+                    target_z_mm = motion.target_z_mm
+                    base_yaw_rad = motion.base_yaw_rad
+                    ik_status = motion.ik_status
+                    ik_clip_notes = motion.ik_clip_notes
+                    y_for_z = motion.y_for_z
+                    z_err_mm = motion.z_err_mm
+                    dist_err_px = motion.dist_err_px
+                    dist_step_mm = 0.0
+                    dist_step_z_mm = 0.0
                 else:
-                    d_base = int(
-                        round(vc.SIGN_ERROR_X_BASE * corr_x_ctrl * vc.TRACK_GAIN_BASE_DEG)
+                    cmd = motion.process_proportional(
+                        vm,
+                        corr_x_ctrl=corr_x_ctrl,
+                        corr_y_vert=corr_y_vert,
+                        dt=dt,
                     )
-                    d_sh = int(
-                        round(vc.SIGN_ERROR_Y_SHOULDER * corr_y_vert * vc.TRACK_GAIN_SHOULDER_DEG)
-                    )
-                    d_el = int(
-                        round(vc.SIGN_ERROR_Y_ELBOW * corr_y_vert * vc.TRACK_GAIN_ELBOW_DEG)
-                    )
-                    cmd = ServoCommand(
-                        wrist=config.NEUTRAL_WRIST,
-                        elbow=config.NEUTRAL_ELBOW + d_el,
-                        base=config.NEUTRAL_BASE + d_base,
-                        shoulder=config.NEUTRAL_SHOULDER + d_sh,
-                    )
-                    cl, _notes = clamp_servo(cmd)
-                    cmd = cl
-                    elbow_cmd_last = cmd.elbow
+                    target_x_mm = motion.target_x_mm
+                    target_z_mm = motion.target_z_mm
+                    base_yaw_rad = motion.base_yaw_rad
+                    ik_status = "proportional"
+                    ik_clip_notes = []
+                    y_for_z = 0.0
+                    z_err_mm = 0.0
+                    dist_err_px = 0.0
+                    dist_step_mm = 0.0
+                    dist_step_z_mm = 0.0
+                last_valid_cmd = motion.last_valid_cmd
 
                 if bool(getattr(vc, "FIRST_FIND_EXTEND_ENABLE", False)) and first_find_phase != "idle":
                     cmd, first_find_phase, first_find_ramp = _apply_first_find_extend(
                         cmd, first_find_phase, first_find_ramp, vc
                     )
-                    elbow_cmd_last = cmd.elbow
+                    motion.elbow_cmd_last = cmd.elbow
 
                 if use_serial:
                     controller.send_servo(cmd)
@@ -972,7 +650,7 @@ def run_tracking(
                         )
                         cv2.putText(
                             vis,
-                            f"z_err={z_err_mm:+5.1f}mm shoulder_dist={shoulder_dist_assist_deg:+d}deg",
+                            f"z_err={z_err_mm:+5.1f}mm shoulder_dist={motion.shoulder_dist_last:+d}deg",
                             (10, 144),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.5,
@@ -1011,35 +689,20 @@ def run_tracking(
                     0.0,
                     max(1e-3, float(getattr(vc, "ENGAGE_DOWN_PER_FRAME", 0.35))),
                 )
-                if bool(getattr(vc, "BASE_PID_RESET_ON_LOSS", True)):
-                    base_pid_i = 0.0
-                    base_pid_prev_e = 0.0
-                    base_pid_d = 0.0
-                    base_zero_cross_hold = 0
-                if bool(getattr(vc, "Y_PID_RESET_ON_LOSS", True)):
-                    y_pid_i = 0.0
-                    y_pid_prev_e = 0.0
-                    y_pid_d = 0.0
+                _nf_cmd, neutral_sent = motion.process_no_face(
+                    vc, now_t=now_t, ctl=ctl, fk0_tip_x=fk0.tip.x, fk0_tip_z=fk0.tip.z
+                )
+                no_face_neutral_sent = motion.no_face_neutral_sent
+                last_valid_cmd = motion.last_valid_cmd
+                target_x_mm = motion.target_x_mm
+                target_z_mm = motion.target_z_mm
+                base_yaw_rad = motion.base_yaw_rad
+                ik_clip_notes = motion.ik_clip_notes
+                z_err_mm = motion.z_err_mm
+                if neutral_sent and use_serial:
+                    controller.neutral()
                 no_face_delay_s = max(0.0, float(getattr(vc, "NO_FACE_RETURN_DELAY_S", 30.0)))
                 face_missing_for_s = max(0.0, now_t - last_face_seen_t)
-                should_return_no_face = face_missing_for_s >= no_face_delay_s
-                if (
-                    ctl == "ik"
-                    and bool(getattr(vc, "NO_FACE_VERTICAL_RETURN_ENABLE", True))
-                    and should_return_no_face
-                    and not no_face_neutral_sent
-                ):
-                    # After timeout, issue one neutral command only.
-                    cmd = _neutral_command()
-                    cmd, _ = clamp_servo(cmd)
-                    last_valid_cmd = cmd
-                    elbow_cmd_last = cmd.elbow
-                    target_x_mm = fk0.tip.x
-                    target_z_mm = fk0.tip.z
-                    z_err_mm = 0.0
-                    if use_serial:
-                        controller.neutral()
-                    no_face_neutral_sent = True
                 if preview:
                     vis = frame_bgr.copy()
                     cv2.line(vis, (int(cx_img), 0), (int(cx_img), h), (180, 180, 180), 1)

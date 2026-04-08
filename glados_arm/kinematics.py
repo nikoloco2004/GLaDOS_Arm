@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 from . import config
+
+# --- IK branch hysteresis (visual servoing): avoid elbow_up/down flipping every frame ---
 from .robot_model import TipPlane
 
 
@@ -61,10 +63,21 @@ def forward_kinematics(
     return FKResult(tip=TipPlane(x=x, z=z), theta1_abs=theta1, theta2_abs=theta2)
 
 
-def _clamp_acos(c: float) -> float | None:
-    if c < -1.0 - 1e-9 or c > 1.0 + 1e-9:
-        return None
-    return math.acos(max(-1.0, min(1.0, c)))
+def resolve_ik_preference(
+    prefer: Literal["elbow_up", "elbow_down"],
+    last_solution: Literal["elbow_up", "elbow_down", "none"] | None,
+    err_y_norm: float,
+    *,
+    switch_threshold: float = 0.12,
+) -> Literal["elbow_up", "elbow_down"]:
+    """
+    Keep IK branch stable when vertical error is small; allow switch when error is large.
+    """
+    if last_solution is None or last_solution == "none":
+        return prefer
+    if abs(err_y_norm) >= switch_threshold:
+        return prefer
+    return last_solution
 
 
 def inverse_kinematics_plane(
@@ -120,9 +133,9 @@ def inverse_kinematics_plane(
             solution="none",
         )
 
-    c2 = (d * d - l1 * l1 - l2 * l2) / (2.0 * l1 * l2)
-    ac = _clamp_acos(c2)
-    if ac is None:
+    # Elbow interior angle via cosine law: D = cos(theta2_interior)
+    D = (d * d - l1 * l1 - l2 * l2) / (2.0 * l1 * l2)
+    if D < -1.0 - 1e-9 or D > 1.0 + 1e-9:
         return IKResult(
             ok=False,
             q_shoulder=0.0,
@@ -132,17 +145,19 @@ def inverse_kinematics_plane(
             reason="numeric_cos_elbow",
             solution="none",
         )
-
-    # Two θ2 solutions: +ac and -ac (different elbow configurations)
-    theta2_a = ac
-    theta2_b = -ac
+    D = max(-1.0, min(1.0, D))
+    disc = max(0.0, 1.0 - D * D)
+    sqrt_disc = math.sqrt(disc)
+    # Same branches as ±acos(D): atan2(±sin, cos) with cos = D
+    theta2_pos = math.atan2(sqrt_disc, D)
+    theta2_neg = math.atan2(-sqrt_disc, D)
 
     def solve_theta1(theta2: float) -> float:
         phi = math.atan2(z, x)
         return phi - math.atan2(l2 * math.sin(theta2), l1 + l2 * math.cos(theta2))
 
     use_a = prefer != "elbow_down"
-    theta2_abs = theta2_a if use_a else theta2_b
+    theta2_abs = theta2_pos if use_a else theta2_neg
     theta1_abs = solve_theta1(theta2_abs)
     q_shoulder = theta1_abs - t1r
     q_elbow = theta2_abs - t2r

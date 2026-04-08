@@ -1,0 +1,115 @@
+"""Shared smoothing, clamping, and rate limiting for arm motion V1."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from .mapping import ServoCommand
+
+
+def clamp(v: float, lo: float, hi: float) -> float:
+    return lo if v < lo else hi if v > hi else v
+
+
+def apply_deadband(v: float, db: float) -> float:
+    if abs(v) < db:
+        return 0.0
+    return v
+
+
+def step_toward(cur: float, target: float, max_step: float) -> float:
+    d = target - cur
+    if abs(d) <= max_step:
+        return target
+    return cur + max_step if d > 0 else cur - max_step
+
+
+def lowpass_scalar(prev: float, target: float, alpha: float) -> float:
+    a = clamp(alpha, 0.0, 1.0)
+    return (1.0 - a) * prev + a * target
+
+
+@dataclass
+class JointRateState:
+    """Per-joint velocity for acceleration limiting."""
+
+    wrist: float = 0.0
+    elbow: float = 0.0
+    base: float = 0.0
+    shoulder: float = 0.0
+
+
+def rate_limit_servo_deg(
+    prev: ServoCommand,
+    target: ServoCommand,
+    *,
+    max_step_deg: tuple[float, float, float, float],
+) -> ServoCommand:
+    """Limit per-joint absolute delta (degrees per frame / per update)."""
+    return ServoCommand(
+        wrist=int(round(step_toward(float(prev.wrist), float(target.wrist), max_step_deg[0]))),
+        elbow=int(round(step_toward(float(prev.elbow), float(target.elbow), max_step_deg[1]))),
+        base=int(round(step_toward(float(prev.base), float(target.base), max_step_deg[2]))),
+        shoulder=int(round(step_toward(float(prev.shoulder), float(target.shoulder), max_step_deg[3]))),
+    )
+
+
+def rate_limit_servo_deg_per_sec(
+    prev: ServoCommand,
+    target: ServoCommand,
+    dt: float,
+    max_dps: tuple[float, float, float, float],
+) -> ServoCommand:
+    """Limit per-joint velocity in deg/s."""
+    if dt <= 1e-9:
+        return target
+    max_step = tuple(min(m * dt, 1e6) for m in max_dps)
+    return rate_limit_servo_deg(prev, target, max_step_deg=max_step)
+
+
+def accel_limit_delta(
+    state: JointRateState,
+    new_cmd: ServoCommand,
+    prev_cmd: ServoCommand,
+    dt: float,
+    max_accel_dps2: tuple[float, float, float, float],
+) -> tuple[ServoCommand, JointRateState]:
+    """Second-order: limit change in velocity (deg/s) per joint."""
+    if dt <= 1e-9:
+        return new_cmd, state
+    # Current velocity estimate (deg/s)
+    v_w = (float(new_cmd.wrist) - float(prev_cmd.wrist)) / dt
+    v_e = (float(new_cmd.elbow) - float(prev_cmd.elbow)) / dt
+    v_b = (float(new_cmd.base) - float(prev_cmd.base)) / dt
+    v_s = (float(new_cmd.shoulder) - float(prev_cmd.shoulder)) / dt
+
+    def limit_vel(v_cur: float, v_prev: float, a_max: float) -> float:
+        dv = v_cur - v_prev
+        max_dv = a_max * dt
+        if abs(dv) <= max_dv:
+            return v_cur
+        return v_prev + math.copysign(max_dv, dv)
+
+    v_w = limit_vel(v_w, state.wrist, max_accel_dps2[0])
+    v_e = limit_vel(v_e, state.elbow, max_accel_dps2[1])
+    v_b = limit_vel(v_b, state.base, max_accel_dps2[2])
+    v_s = limit_vel(v_s, state.shoulder, max_accel_dps2[3])
+
+    out = ServoCommand(
+        wrist=int(round(float(prev_cmd.wrist) + v_w * dt)),
+        elbow=int(round(float(prev_cmd.elbow) + v_e * dt)),
+        base=int(round(float(prev_cmd.base) + v_b * dt)),
+        shoulder=int(round(float(prev_cmd.shoulder) + v_s * dt)),
+    )
+    new_state = JointRateState(wrist=v_w, elbow=v_e, base=v_b, shoulder=v_s)
+    return out, new_state
+
+
+def command_delta_max_deg(a: ServoCommand, b: ServoCommand) -> float:
+    return max(
+        abs(a.wrist - b.wrist),
+        abs(a.elbow - b.elbow),
+        abs(a.base - b.base),
+        abs(a.shoulder - b.shoulder),
+    )

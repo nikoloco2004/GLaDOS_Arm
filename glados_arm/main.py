@@ -23,9 +23,9 @@ from .mapping import ModelJointState, ServoCommand, clamp_servo, model_to_servo,
 from .motion_smooth import (
     float_tuple_to_servo_command,
     lowpass_scalar,
+    rate_float_toward_independent,
     rate_limit_servo_deg_per_sec,
     servo_command_to_float_tuple,
-    sync_step_servo_float_toward,
     sync_step_servo_toward,
 )
 from .serial_comm import ArmSerial
@@ -806,9 +806,9 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     """
     From firmware NEUTRAL: straight vertical line in the (x,z) plane (fixed x, base yaw 0).
 
-    Default **smooth** mode: **arc-length z scheduling** (uniform progress in measured joint-space
-    cost along the path) so motion does not rush near the top — linear z-in-time would. Each
-    control frame uses several **substeps** of proportional sync rate limiting (MAX_JOINT_DPS).
+    Default **smooth** mode: **arc-length z scheduling** (optional) so motion does not rush near
+    the top. Each control frame uses **substeps** of **independent** per-joint rate limiting
+    (raise_speed×MAX_JOINT_DPS, float) so every joint that needs to move does so together.
 
     Wrist uses **delta_neutral** stab: level reference is neutral (q=0); q_wrist tracks the
     change in link pitch from that pose. Stab reads shoulder/elbow from the **previous
@@ -831,7 +831,9 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
     wrist_stab = bool(args.wrist_stab)
     hz = max(5.0, float(args.hz))
     duration_up = max(0.5, float(args.duration_up))
-    max_dps_raise = tuple(float(x) for x in getattr(mv1, "MAX_JOINT_DPS", (120.0, 90.0, 60.0, 75.0)))
+    base_dps = tuple(float(x) for x in getattr(mv1, "MAX_JOINT_DPS", (120.0, 90.0, 60.0, 75.0)))
+    raise_speed = max(0.5, float(args.raise_speed))
+    max_dps_raise = tuple(min(220.0, d * raise_speed) for d in base_dps)
     duration_down = float(args.duration_up) if args.duration_down is None else float(args.duration_down)
     dt = 1.0 / hz
     substeps = max(1, int(args.raise_substeps))
@@ -976,7 +978,7 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
                 raise RuntimeError("ik_fail")
             tgt = r.servo_clamped
             for _ in range(substeps):
-                cmd_f = sync_step_servo_float_toward(cmd_f, tgt, dt_sub, max_dps_raise)
+                cmd_f = rate_float_toward_independent(cmd_f, tgt, dt_sub, max_dps_raise)
                 cmd = float_tuple_to_servo_command(cmd_f)
                 if controller is not None:
                     controller.send_servo(cmd)
@@ -1002,7 +1004,8 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
         print(
             f"smooth: hz={hz:.1f} dt={dt*1000:.1f}ms | up {duration_up:.1f}s ({n_up} frames) "
             f"{'+ down ' + str(round(duration_down, 1)) + 's' if bool(args.return_down) else ''} "
-            f"| arc_z={use_arc} k_fine={k_fine} substeps={substeps} | sync MAX_JOINT_DPS={max_dps_raise}"
+            f"| arc_z={use_arc} k_fine={k_fine} substeps={substeps} "
+            f"| raise_speed={raise_speed} independent-rate MAX_JOINT_DPS={max_dps_raise}"
         )
         z_sched_up = (
             _raise_camera_arc_z_schedule(z0, z_top, neutral_cmd, _solve_at_z, n_up, k_fine)
@@ -1057,7 +1060,7 @@ def cmd_raise_camera_line(args: argparse.Namespace) -> int:
                     controller.neutral()
                     return 2
                 step_dt = max(dt, delay * 0.5)
-                cmd_f = sync_step_servo_float_toward(cmd_f, r.servo_clamped, step_dt, max_dps_raise)
+                cmd_f = rate_float_toward_independent(cmd_f, r.servo_clamped, step_dt, max_dps_raise)
                 cmd = float_tuple_to_servo_command(cmd_f)
                 controller.send_servo(cmd)
                 time.sleep(delay)
@@ -1261,8 +1264,8 @@ def build_parser() -> argparse.ArgumentParser:
     rc = sub.add_parser(
         "raise-camera",
         help=(
-            "vertical line from NEUTRAL: smooth IK (default) with proportional joint rate limits; "
-            "wrist=delta-from-neutral stab; binary-refined max z. Use --discrete for stepped motion."
+            "vertical line from NEUTRAL: smooth IK with per-joint rate limits; "
+            "wrist=delta-from-neutral stab; arc-length z optional. Use --discrete for stepped motion."
         ),
     )
     rc.add_argument("--port", default=config.SERIAL_DEFAULT_PORT)
@@ -1274,14 +1277,14 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument(
         "--hz",
         type=float,
-        default=90.0,
-        help="outer control rate for smooth mode (default: 90); each frame uses --raise-substeps sends",
+        default=100.0,
+        help="outer control rate for smooth mode (default: 100); each frame uses --raise-substeps sends",
     )
     rc.add_argument(
         "--duration-up",
         type=float,
-        default=18.0,
-        help="seconds to interpolate z0 -> z_top in smooth mode (default: 18)",
+        default=12.0,
+        help="seconds to interpolate z0 -> z_top in smooth mode (default: 12)",
     )
     rc.add_argument(
         "--duration-down",
@@ -1325,8 +1328,14 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument(
         "--raise-substeps",
         type=int,
-        default=3,
-        help="serial servo commands per outer frame for smoother motion (default: 3)",
+        default=2,
+        help="serial servo commands per outer frame (default: 2)",
+    )
+    rc.add_argument(
+        "--raise-speed",
+        type=float,
+        default=1.75,
+        help="multiplier on MAX_JOINT_DPS for this move (default: 1.75, capped per joint)",
     )
     rc.add_argument(
         "--arc-fine",

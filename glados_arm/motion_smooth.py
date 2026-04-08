@@ -166,6 +166,45 @@ def sync_step_servo_float_toward(
     )
 
 
+def rate_float_toward_independent(
+    prev: tuple[float, float, float, float],
+    target: ServoCommand,
+    dt: float,
+    max_dps: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """
+    Each joint steps toward its target by up to max_dps[i]*dt (no shared fraction). Joints that
+    need motion all move together each tick; proportional sync used one joint's error to limit
+    everyone, which made only one joint's integer command change at a time when errors differed.
+    """
+    if dt <= 1e-9:
+        return (
+            float(target.wrist),
+            float(target.elbow),
+            float(target.base),
+            float(target.shoulder),
+        )
+    tt = (
+        float(target.wrist),
+        float(target.elbow),
+        float(target.base),
+        float(target.shoulder),
+    )
+    out: list[float] = []
+    for i in range(4):
+        p, t = prev[i], tt[i]
+        max_step = max_dps[i] * dt
+        d = t - p
+        ad = abs(d)
+        if ad < 1e-12:
+            out.append(p)
+        elif ad <= max_step:
+            out.append(t)
+        else:
+            out.append(p + math.copysign(max_step, d))
+    return (out[0], out[1], out[2], out[3])
+
+
 def accel_limit_delta(
     state: JointRateState,
     new_cmd: ServoCommand,

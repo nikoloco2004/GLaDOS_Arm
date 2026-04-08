@@ -7,6 +7,7 @@ import unittest
 from glados_arm import kinematics
 from glados_arm.mapping import ServoCommand
 from glados_arm.motion_smooth import (
+    rate_float_toward_independent,
     servo_command_to_float_tuple,
     sync_step_servo_float_toward,
     sync_step_servo_toward,
@@ -44,6 +45,15 @@ class TestSyncStepServoToward(unittest.TestCase):
         for _ in range(500):
             f = sync_step_servo_float_toward(f, target, dt, max_dps)
         self.assertAlmostEqual(f[1], 30.0, places=3)
+
+    def test_independent_moves_all_active_joints(self) -> None:
+        prev = (200.0, 270.0, 135.0, 0.0)
+        target = ServoCommand(wrist=200, elbow=260, base=135, shoulder=5)
+        max_dps = (120.0, 90.0, 60.0, 75.0)
+        dt = 0.05
+        out = rate_float_toward_independent(prev, target, dt, max_dps)
+        self.assertLess(out[1], prev[1])
+        self.assertGreater(out[3], prev[3])
 
 
 class TestIKBranchHysteresis(unittest.TestCase):

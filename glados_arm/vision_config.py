@@ -157,7 +157,7 @@ ZERR_SHOULDER_MAX_DEG = 10
 ZERR_SIGN_SHOULDER = 1.0
 # Tuning mode: vertical chain is allowed to move upward only (prevents down-driving into
 # elbow-max/shoulder-min when neutral is already near the lower workspace boundary).
-TRACK_VERTICAL_UP_ONLY = True
+TRACK_VERTICAL_UP_ONLY = False
 # Lower-bound behavior: if Y asks down while chain is at lower bound, use wrist-only down trim.
 LOWER_BOUND_WRIST_ONLY_ENABLE = True
 LOWER_BOUND_WRIST_ONLY_MAX_DEG = 20.0

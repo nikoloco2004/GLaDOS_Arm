@@ -140,8 +140,8 @@ DIST_Z_MAX_STEP_MM = 1.0
 
 # Extra shoulder engagement in IK mode (applied on top of IK shoulder command).
 # Elbow was dominating; raise shoulder so the vertical chain lifts with both joints.
-TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 9.0
-TRACK_SHOULDER_ASSIST_MAX_DEG = 32
+TRACK_SHOULDER_ASSIST_DEG_PER_NORM = 12.0
+TRACK_SHOULDER_ASSIST_MAX_DEG = 40
 # Distance-driven shoulder assist (independent of Y).
 DIST_SHOULDER_ASSIST_ENABLE = False
 DIST_SHOULDER_DEG_PER_PX = 0.04
@@ -152,33 +152,41 @@ DIST_SHOULDER_MAX_STEP_PER_FRAME_DEG = 1
 # Additional shoulder assist from measured z error (mm -> deg).
 # When IK mostly bends the elbow, this nudges shoulder so the tip actually reaches target_z.
 ZERR_SHOULDER_ASSIST_ENABLE = True
-ZERR_SHOULDER_DEG_PER_MM = 0.16
-ZERR_SHOULDER_MAX_DEG = 22
+ZERR_SHOULDER_DEG_PER_MM = 0.20
+ZERR_SHOULDER_MAX_DEG = 28
 ZERR_SIGN_SHOULDER = 1.0
 # Lower-bound behavior: if Y asks down while chain is at lower bound, use wrist-only down trim.
 LOWER_BOUND_WRIST_ONLY_ENABLE = True
-LOWER_BOUND_WRIST_ONLY_MAX_DEG = 35.0
-LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM = 105.0
-LOWER_BOUND_PIN_MARGIN_DEG = 2
+LOWER_BOUND_WRIST_ONLY_MAX_DEG = 48.0
+LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM = 130.0
+LOWER_BOUND_PIN_MARGIN_DEG = 3
 LOWER_BOUND_WRIST_ONLY_DOWN_ZSTEP_EPS_MM = 0.02
 LOWER_BOUND_WRIST_ONLY_DOWN_YFORZ_EPS_NORM = 0.03
 LOWER_BOUND_WRIST_ONLY_DEADBAND_NORM = 0.05
 LOWER_BOUND_WRIST_ONLY_NEAR_NORM = 0.16
-LOWER_BOUND_WRIST_ONLY_NEAR_SCALE = 0.55
-LOWER_BOUND_WRIST_ONLY_MAX_STEP_DEG = 2
+LOWER_BOUND_WRIST_ONLY_NEAR_SCALE = 0.65
+LOWER_BOUND_WRIST_ONLY_MAX_STEP_DEG = 3
 # Prioritize shoulder+elbow ("proximal joints") before wrist during vertical tracking.
 # Wrist command is held until proximal joint deltas are small; keeps wrist from leading.
 VERTICAL_PROXIMAL_FIRST_ENABLE = True
-VERTICAL_PROXIMAL_FIRST_SHOULDER_THRESH_DEG = 2.0
-VERTICAL_PROXIMAL_FIRST_ELBOW_THRESH_DEG = 2.0
+VERTICAL_PROXIMAL_FIRST_SHOULDER_THRESH_DEG = 1.5
+VERTICAL_PROXIMAL_FIRST_ELBOW_THRESH_DEG = 1.5
 # Upward command guard: prevent shoulder from being pulled down when Y requests up;
 # if chain is pinned at (shoulder min, elbow max), force a tiny coupled escape step.
 UPWARD_MONOTONIC_GUARD_ENABLE = True
 UPWARD_MONOTONIC_EPS_NORM = 0.03
-UPWARD_UNSTICK_STEP_DEG = 1
+UPWARD_UNSTICK_STEP_DEG = 2
+# Upper-bound behavior: when Y asks up near the top envelope, prefer proximal
+# extension (shoulder+elbow) and hold wrist trim to avoid wrist-leading.
+UPPER_BOUND_PROXIMAL_EXTEND_ENABLE = True
+UPPER_BOUND_PROXIMAL_EPS_NORM = 0.03
+UPPER_BOUND_NEAR_Z_MM = 4.0
+UPPER_BOUND_PIN_MARGIN_DEG = 3
+UPPER_BOUND_SHOULDER_STEP_DEG = 2
+UPPER_BOUND_ELBOW_COUPLE_STEP_DEG = 1
 # Elbow assist in IK mode for vertical compensation.
-TRACK_ELBOW_ASSIST_DEG_PER_NORM = 2.0
-TRACK_ELBOW_ASSIST_MAX_DEG = 12
+TRACK_ELBOW_ASSIST_DEG_PER_NORM = 3.0
+TRACK_ELBOW_ASSIST_MAX_DEG = 16
 ELBOW_SMOOTH_ALPHA = 0.10
 ELBOW_MAX_STEP_PER_FRAME_DEG = 1
 ELBOW_CMD_MAX_STEP_PER_FRAME_DEG = 2

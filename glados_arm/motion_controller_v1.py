@@ -443,6 +443,45 @@ class MotionControllerV1:
                 )
                 cmd, _ = clamp_servo(cmd)
 
+        # Upper-bound proximal extension:
+        # Near top travel, prefer shoulder/elbow extension and hold wrist trim
+        # so vertical "reach up" happens through proximal joints first.
+        if bool(getattr(vc, "UPPER_BOUND_PROXIMAL_EXTEND_ENABLE", False)):
+            up_eps = max(0.0, float(getattr(vc, "UPPER_BOUND_PROXIMAL_EPS_NORM", 0.03)))
+            wants_up = (corr_y_ik > up_eps) or (float(z_step) > 0.0)
+            z_max = float(getattr(vc, "TARGET_Z_MAX_MM", 190.0))
+            near_z = max(0.0, float(getattr(vc, "UPPER_BOUND_NEAR_Z_MM", 4.0)))
+            near_upper = self.target_z_mm >= (z_max - near_z)
+            upper_clip = (
+                "clipped_shoulder_max" in self.ik_clip_notes or "clipped_elbow_min" in self.ik_clip_notes
+            )
+            lower_bound_wrist_only_active = "lower_bound_wrist_only" in self.ik_status
+            pin_margin = max(0, int(getattr(vc, "UPPER_BOUND_PIN_MARGIN_DEG", 3)))
+            shoulder_room = int(self.last_valid_cmd.shoulder) < int(config.SERVO_SHOULDER_MAX) - pin_margin
+            elbow_room = int(self.last_valid_cmd.elbow) > int(config.SERVO_ELBOW_MIN) + pin_margin
+            if (
+                wants_up
+                and not lower_bound_wrist_only_active
+                and (near_upper or upper_clip)
+                and (shoulder_room or elbow_room)
+            ):
+                sh_step = max(1, int(getattr(vc, "UPPER_BOUND_SHOULDER_STEP_DEG", 1)))
+                el_step = max(0, int(getattr(vc, "UPPER_BOUND_ELBOW_COUPLE_STEP_DEG", 0)))
+                new_sh = int(cmd.shoulder)
+                new_el = int(cmd.elbow)
+                if shoulder_room:
+                    new_sh = max(new_sh, int(self.last_valid_cmd.shoulder) + sh_step)
+                if elbow_room and el_step > 0:
+                    new_el = min(new_el, int(self.last_valid_cmd.elbow) - el_step)
+                cmd = ServoCommand(
+                    wrist=self.last_valid_cmd.wrist,
+                    elbow=new_el,
+                    base=cmd.base,
+                    shoulder=new_sh,
+                )
+                cmd, _ = clamp_servo(cmd)
+                self.ik_status = f"{self.ik_status}|upper_bound_proximal_extend"
+
         # Proximal-first vertical motion: keep wrist from leading while shoulder/elbow
         # are still moving toward the new IK target. This makes the chain "lift first"
         # and wrist follow after proximal joints settle.

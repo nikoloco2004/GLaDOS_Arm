@@ -405,7 +405,16 @@ class MotionControllerV1:
             down_eps_norm = max(
                 0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_DOWN_YFORZ_EPS_NORM", 0.03))
             )
-            wants_down = (float(z_step) < -down_eps_mm) or (float(self.y_for_z) < -down_eps_norm)
+            # Future-self note:
+            # In some calibrations, z_step/y_for_z sign can be affected by intermediate
+            # coupling/sign choices even while the visual intent is clearly "down".
+            # Include corr_y_ik in the gate so lower-bound wrist takeover triggers
+            # from the actual vertical command intent, not only derived terms.
+            wants_down = (
+                (float(z_step) < -down_eps_mm)
+                or (float(self.y_for_z) < -down_eps_norm)
+                or (float(corr_y_ik) < -down_eps_norm)
+            )
             if wants_down and (at_lower or lower_clip or lower_pinned):
                 max_deg = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_MAX_DEG", 20.0)))
                 gain = max(0.0, float(getattr(vc, "LOWER_BOUND_WRIST_ONLY_GAIN_DEG_PER_NORM", 80.0)))

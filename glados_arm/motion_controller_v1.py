@@ -119,9 +119,16 @@ class MotionControllerV1:
         wrist_alpha = float(getattr(mv, "WRIST_COMMAND_LPF_ALPHA", alpha))
         wrist_alpha = clamp(wrist_alpha, 0.0, 1.0)
         prev = self._cmd_lpf
+        lower_bound_wrist_only_active = "lower_bound_wrist_only" in self.ik_status
+        # Wrist-only lower-bound takeover already enforces its own bounded per-frame step.
+        # Let that command pass through directly so LPF integer rounding and low wrist dps
+        # cannot pin wrist at neutral while status shows lower-bound takeover active.
+        wrist_target_for_lpf = float(cmd.wrist) if lower_bound_wrist_only_active else float(
+            lowpass_scalar(float(prev.wrist), float(cmd.wrist), wrist_alpha)
+        )
         # Low-pass on float precursors
         smoothed = ServoCommand(
-            wrist=int(round(lowpass_scalar(float(prev.wrist), float(cmd.wrist), wrist_alpha))),
+            wrist=int(round(wrist_target_for_lpf)),
             elbow=int(round(lowpass_scalar(float(prev.elbow), float(cmd.elbow), alpha))),
             base=int(round(lowpass_scalar(float(prev.base), float(cmd.base), alpha))),
             shoulder=int(round(lowpass_scalar(float(prev.shoulder), float(cmd.shoulder), alpha))),
@@ -129,7 +136,6 @@ class MotionControllerV1:
         wrist_hold_deg = max(0.0, float(getattr(mv, "WRIST_HOLD_BAND_DEG", 0.0)))
         wrist_raw_delta = abs(float(cmd.wrist) - float(self.last_valid_cmd.wrist))
         wrist_smoothed_delta = abs(float(smoothed.wrist) - float(self.last_valid_cmd.wrist))
-        lower_bound_wrist_only_active = "lower_bound_wrist_only" in self.ik_status
         # Apply wrist hold only for genuinely tiny requested moves; do not let it
         # cancel large commands that are still being low-pass filtered.
         # Also bypass hold entirely while lower-bound wrist takeover is active.
@@ -148,6 +154,13 @@ class MotionControllerV1:
         wrist_max_dps = float(getattr(mv, "WRIST_MAX_DPS", float(max_dps[0])))
         dps = (wrist_max_dps, float(max_dps[1]), float(max_dps[2]), float(max_dps[3]))
         out = rate_limit_servo_deg_per_sec(self.last_valid_cmd, smoothed, dt, dps)
+        if lower_bound_wrist_only_active:
+            out = ServoCommand(
+                wrist=smoothed.wrist,
+                elbow=out.elbow,
+                base=out.base,
+                shoulder=out.shoulder,
+            )
         max_a = getattr(mv, "MAX_JOINT_ACCEL_DPS2", mv1_defaults.MAX_JOINT_ACCEL_DPS2)
         if max(max_a) > 1e-6:
             out, self._joint_vel = accel_limit_delta(
